@@ -1,0 +1,283 @@
+package com.cwj.surgpanel.ui.imaging
+
+import android.graphics.Bitmap
+import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.width
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.remember
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.ImageBitmap
+import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.graphics.nativeCanvas
+import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.IntOffset
+import androidx.compose.ui.unit.IntSize
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
+import com.cwj.surgpanel.core.LinkMode
+import com.cwj.surgpanel.core.Modality
+import com.cwj.surgpanel.core.SignalEngine
+import com.cwj.surgpanel.core.SurgicalSession
+import com.cwj.surgpanel.ui.common.ChipButton
+import com.cwj.surgpanel.ui.common.PanelFrame
+import com.cwj.surgpanel.ui.common.SectionLabel
+import com.cwj.surgpanel.ui.common.StatusDot
+import com.cwj.surgpanel.ui.common.rememberAnimatedSeconds
+import com.cwj.surgpanel.ui.theme.Palette
+import com.pico.spatial.ui.design.Text
+import kotlin.math.min
+
+/**
+ * 影像面板：CT / MRI 轴位切面。
+ * 与体征面板共享同一条手术时间轴——当联动开启时，切层索引会跟随外科医生的关注点自动推进。
+ */
+@Composable
+fun ImagingPanel() {
+    val t = rememberAnimatedSeconds()
+    val modality = SurgicalSession.modality
+    val slice = SurgicalSession.sliceIndex
+    val ww = SurgicalSession.windowWidth
+    val wl = SurgicalSession.windowLevel
+    val zoom = SurgicalSession.imagingZoom
+
+    val image = remember(modality, slice, (ww / 25f).toInt(), (wl / 10f).toInt()) {
+        renderSlice(modality, slice, ww, wl)
+    }
+
+    PanelFrame(
+        title = "术中影像 · ${modality.label}",
+        tag = "IMAGING",
+        accent = Palette.Cyan,
+        trailing = {
+            StatusDot(active = SurgicalSession.linkMode != LinkMode.OFF, color = Palette.Mint, label = "LINK")
+            Spacer(Modifier.width(10.dp))
+            Text(
+                text = "${zoom}x",
+                color = Palette.Cyan,
+                fontSize = 12.sp,
+                fontFamily = FontFamily.Monospace
+            )
+        }
+    ) {
+        // 工具条
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(7.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Modality.values().forEach { m ->
+                ChipButton(m.label, modality == m, Palette.Cyan) { SurgicalSession.modality = m }
+            }
+            Spacer(Modifier.width(6.dp))
+            ChipButton("− 层", false) {
+                SurgicalSession.sliceIndex = (slice - 1).coerceAtLeast(0)
+            }
+            ChipButton("＋ 层", false) {
+                SurgicalSession.sliceIndex = (slice + 1).coerceAtMost(95)
+            }
+            ChipButton("窗宽 −", false) {
+                SurgicalSession.windowWidth = (ww - 50f).coerceAtLeast(80f)
+            }
+            ChipButton("窗宽 ＋", false) {
+                SurgicalSession.windowWidth = (ww + 50f).coerceAtMost(1600f)
+            }
+            ChipButton("窗位 −", false) {
+                SurgicalSession.windowLevel = (wl - 10f).coerceAtLeast(-200f)
+            }
+            ChipButton("窗位 ＋", false) {
+                SurgicalSession.windowLevel = (wl + 10f).coerceAtMost(300f)
+            }
+            ChipButton("ROI", SurgicalSession.roiLocked, Palette.Amber) {
+                SurgicalSession.roiLocked = !SurgicalSession.roiLocked
+            }
+            ChipButton("缩放", true, Palette.Cyan) {
+                SurgicalSession.imagingZoom = when {
+                    zoom < 1.3f -> zoom + 0.15f
+                    else -> 1f
+                }
+            }
+        }
+
+        Spacer(Modifier.height(10.dp))
+
+        // 影像画布
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .weight(1f)
+                .background(Color.Black)
+        ) {
+            Canvas(Modifier.fillMaxSize()) {
+                val side = min(size.width, size.height) * 0.94f
+                val dst = side.toInt()
+                val ox = ((size.width - side) / 2f).toInt()
+                val oy = ((size.height - side) / 2f).toInt()
+
+                drawImage(
+                    image = image,
+                    dstOffset = IntOffset(ox, oy),
+                    dstSize = IntSize(dst, dst)
+                )
+
+                // 外框
+                drawRect(
+                    color = Palette.StrokeBright,
+                    topLeft = Offset(ox.toFloat(), oy.toFloat()),
+                    size = Size(dst.toFloat(), dst.toFloat()),
+                    style = Stroke(width = 1.5f)
+                )
+
+                // 十字准线
+                val cx = ox + dst / 2f
+                val cy = oy + dst / 2f
+                drawLine(
+                    color = Palette.Cyan.copy(alpha = 0.28f),
+                    start = Offset(cx, oy.toFloat()),
+                    end = Offset(cx, (oy + dst).toFloat()),
+                    strokeWidth = 1f
+                )
+                drawLine(
+                    color = Palette.Cyan.copy(alpha = 0.28f),
+                    start = Offset(ox.toFloat(), cy),
+                    end = Offset((ox + dst).toFloat(), cy),
+                    strokeWidth = 1f
+                )
+
+                // ROI 关注框：随心跳做呼吸式脉动，联动的可视线索
+                if (SurgicalSession.roiLocked) {
+                    val pulse = (0.55f + 0.45f * kotlin.math.sin(t * 3.2f))
+                    val roiSize = dst * 0.26f
+                    val rx = cx - roiSize / 2f + kotlin.math.sin(t * 0.9f) * dst * 0.02f
+                    val ry = cy - roiSize / 2f + kotlin.math.cos(t * 0.7f) * dst * 0.025f
+                    drawRect(
+                        color = Palette.Amber.copy(alpha = 0.35f + 0.4f * pulse),
+                        topLeft = Offset(rx, ry),
+                        size = Size(roiSize, roiSize),
+                        style = Stroke(width = 2f)
+                    )
+                    drawRect(
+                        color = Palette.Amber.copy(alpha = 0.08f),
+                        topLeft = Offset(rx, ry),
+                        size = Size(roiSize, roiSize)
+                    )
+                }
+
+                // 标注文本
+                val paint = android.graphics.Paint().apply {
+                    isAntiAlias = true
+                    typeface = android.graphics.Typeface.MONOSPACE
+                    textSize = 10.sp.toPx()
+                }
+
+                paint.color = android.graphics.Color.argb(200, 120, 214, 232)
+                drawContext.canvas.nativeCanvas.apply {
+                    drawText("R", (ox + dst + 6f), cy + 4f, paint)
+                    drawText("L", (ox - 14f), cy + 4f, paint)
+                    drawText("A", cx - 4f, (oy - 6f), paint)
+                    drawText("P", cx - 4f, (oy + dst + 14f), paint)
+                }
+
+                // 左下角比例尺
+                paint.color = android.graphics.Color.argb(180, 233, 241, 251)
+                val barW = dst * 0.18f
+                val barY = (oy + dst - 14f)
+                drawContext.canvas.nativeCanvas.apply {
+                    drawText("5 cm", ox + 8f, barY - 4f, paint)
+                }
+                drawLine(
+                    color = Palette.TextPrimary.copy(alpha = 0.7f),
+                    start = Offset(ox + 8f, barY),
+                    end = Offset(ox + 8f + barW, barY),
+                    strokeWidth = 2f
+                )
+
+                // 右上角切层号
+                paint.color = android.graphics.Color.argb(230, 55, 216, 232)
+                drawContext.canvas.nativeCanvas.drawText(
+                    "SLICE ${slice + 1}/96  ·  ${SurgicalSession.modality.label}",
+                    ox + 8f,
+                    oy + 16f,
+                    paint
+                )
+
+                // 左下角窗宽窗位
+                paint.color = android.graphics.Color.argb(170, 185, 199, 216)
+                drawContext.canvas.nativeCanvas.drawText(
+                    "W ${ww.toInt()}  L ${wl.toInt()}  ${SurgicalSession.modality.unit}",
+                    ox + 8f,
+                    oy + 32f,
+                    paint
+                )
+            }
+        }
+
+        Spacer(Modifier.height(10.dp))
+
+        // 底部信息条
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(10.dp)
+        ) {
+            SectionLabel("靶区：胆囊三角", Palette.Cyan)
+            Spacer(Modifier.weight(1f))
+            Text(
+                text = SurgicalSession.sliceLabel(),
+                color = Palette.TextBody,
+                fontSize = 11.sp,
+                fontFamily = FontFamily.Monospace
+            )
+            Spacer(Modifier.width(10.dp))
+            Text(
+                text = when (SurgicalSession.linkMode) {
+                    LinkMode.FULL -> "全联动 · 切层随手术阶段推进"
+                    LinkMode.FOCUS -> "焦点联动 · 镜像主刀视角"
+                    LinkMode.OFF -> "独立模式"
+                },
+                color = Palette.TextDim,
+                fontSize = 11.sp,
+                fontWeight = FontWeight.Normal
+            )
+        }
+    }
+}
+
+/** 将组织密度函数烘焙成一张 96×96 的灰阶位图，避免逐帧逐像素绘制。 */
+private fun renderSlice(modality: Modality, slice: Int, ww: Float, wl: Float): ImageBitmap {
+    val n = 96
+    val pixels = IntArray(n * n)
+    val mri = modality == Modality.MRI
+    val lo = wl - ww / 2f
+    val span = ww.coerceAtLeast(1f)
+    for (y in 0 until n) {
+        val fy = y / (n - 1f)
+        for (x in 0 until n) {
+            val fx = x / (n - 1f)
+            val density = SignalEngine.tissueDensity(fx, fy, slice, if (mri) 7 else 3)
+            val hu = if (mri) density * 1600f - 200f else density * 2400f - 1100f
+            var v = ((hu - lo) / span).coerceIn(0f, 1f)
+            v = v * v * (3f - 2f * v)
+            val g = (v * 255f).toInt()
+            val r = if (mri) (g * 0.72f).toInt() else g
+            val gg = if (mri) (g * 0.82f).toInt() else g
+            val b = if (mri) g else (g * 0.96f).toInt()
+            pixels[y * n + x] = (0xFF shl 24) or (r shl 16) or (gg shl 8) or b
+        }
+    }
+    return Bitmap.createBitmap(pixels, n, n, Bitmap.Config.ARGB_8888).asImageBitmap()
+}
