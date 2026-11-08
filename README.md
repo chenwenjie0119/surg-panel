@@ -179,3 +179,5 @@ All shots are captured from the PICO Emulator with `adb exec-out screencap`.
 
 *Built for the PICO Space Program 2026. Pure Kotlin, PICO Spatial SDK, no Unity, no third-party 3D engine.*
 
+See [docs/architecture.md](docs/architecture.md) for detailed implementation states.
+

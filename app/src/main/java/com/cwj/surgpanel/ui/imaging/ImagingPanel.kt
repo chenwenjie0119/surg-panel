@@ -22,6 +22,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.graphics.drawscope.clipRect
 import androidx.compose.ui.graphics.nativeCanvas
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
@@ -67,7 +68,7 @@ fun ImagingPanel() {
             StatusDot(active = SurgicalSession.linkMode != LinkMode.OFF, color = Palette.Mint, label = "LINK")
             Spacer(Modifier.width(10.dp))
             Text(
-                text = "${zoom}x",
+                text = "%.2fx".format(zoom),
                 color = Palette.Cyan,
                 fontSize = 12.sp,
                 fontFamily = FontFamily.Monospace
@@ -123,24 +124,27 @@ fun ImagingPanel() {
                 .background(Color.Black)
         ) {
             Canvas(Modifier.fillMaxSize()) {
-                val side = min(size.width, size.height) * 0.94f
+                // 缩放矩阵：以画布中心为锚点等比放大切面，越界部分由裁剪域收敛到窗口内
+                val side = min(size.width, size.height) * 0.94f * zoom
                 val dst = side.toInt()
                 val ox = ((size.width - side) / 2f).toInt()
                 val oy = ((size.height - side) / 2f).toInt()
 
-                drawImage(
-                    image = image,
-                    dstOffset = IntOffset(ox, oy),
-                    dstSize = IntSize(dst, dst)
-                )
+                clipRect(left = 0f, top = 0f, right = size.width, bottom = size.height) {
+                    drawImage(
+                        image = image,
+                        dstOffset = IntOffset(ox, oy),
+                        dstSize = IntSize(dst, dst)
+                    )
 
-                // 外框
-                drawRect(
-                    color = Palette.StrokeBright,
-                    topLeft = Offset(ox.toFloat(), oy.toFloat()),
-                    size = Size(dst.toFloat(), dst.toFloat()),
-                    style = Stroke(width = 1.5f)
-                )
+                    // 外框
+                    drawRect(
+                        color = Palette.StrokeBright,
+                        topLeft = Offset(ox.toFloat(), oy.toFloat()),
+                        size = Size(dst.toFloat(), dst.toFloat()),
+                        style = Stroke(width = 1.5f)
+                    )
+                }
 
                 // 十字准线
                 val cx = ox + dst / 2f
@@ -184,25 +188,30 @@ fun ImagingPanel() {
                     textSize = 10.sp.toPx()
                 }
 
+                // 叠加层坐标收敛：缩放后图元可能越界，标注一律夹回画布内，保证始终可读
+                fun clampX(v: Float, pad: Float = 6f) = v.coerceIn(pad, (size.width - pad).coerceAtLeast(pad))
+                fun clampY(v: Float, pad: Float = 12f) = v.coerceIn(pad, (size.height - pad).coerceAtLeast(pad))
+
                 paint.color = android.graphics.Color.argb(200, 120, 214, 232)
                 drawContext.canvas.nativeCanvas.apply {
-                    drawText("R", (ox + dst + 6f), cy + 4f, paint)
-                    drawText("L", (ox - 14f), cy + 4f, paint)
-                    drawText("A", cx - 4f, (oy - 6f), paint)
-                    drawText("P", cx - 4f, (oy + dst + 14f), paint)
+                    drawText("R", clampX(ox + dst + 6f, 14f), cy + 4f, paint)
+                    drawText("L", clampX(ox - 14f, 14f), cy + 4f, paint)
+                    drawText("A", cx - 4f, clampY(oy - 6f), paint)
+                    drawText("P", cx - 4f, clampY(oy + dst + 14f), paint)
                 }
 
                 // 左下角比例尺
                 paint.color = android.graphics.Color.argb(180, 233, 241, 251)
                 val barW = dst * 0.18f
-                val barY = (oy + dst - 14f)
+                val barX = clampX(ox + 8f, 8f)
+                val barY = clampY(oy + dst - 14f, 24f)
                 drawContext.canvas.nativeCanvas.apply {
-                    drawText("5 cm", ox + 8f, barY - 4f, paint)
+                    drawText("5 cm", barX, barY - 4f, paint)
                 }
                 drawLine(
                     color = Palette.TextPrimary.copy(alpha = 0.7f),
-                    start = Offset(ox + 8f, barY),
-                    end = Offset(ox + 8f + barW, barY),
+                    start = Offset(barX, barY),
+                    end = Offset(barX + barW, barY),
                     strokeWidth = 2f
                 )
 
@@ -210,8 +219,8 @@ fun ImagingPanel() {
                 paint.color = android.graphics.Color.argb(230, 55, 216, 232)
                 drawContext.canvas.nativeCanvas.drawText(
                     "SLICE ${slice + 1}/96  ·  ${SurgicalSession.modality.label}",
-                    ox + 8f,
-                    oy + 16f,
+                    clampX(ox + 8f, 8f),
+                    clampY(oy + 16f, 16f),
                     paint
                 )
 
@@ -219,8 +228,8 @@ fun ImagingPanel() {
                 paint.color = android.graphics.Color.argb(170, 185, 199, 216)
                 drawContext.canvas.nativeCanvas.drawText(
                     "W ${ww.toInt()}  L ${wl.toInt()}  ${SurgicalSession.modality.unit}",
-                    ox + 8f,
-                    oy + 32f,
+                    clampX(ox + 8f, 8f),
+                    clampY(oy + 32f, 32f),
                     paint
                 )
             }

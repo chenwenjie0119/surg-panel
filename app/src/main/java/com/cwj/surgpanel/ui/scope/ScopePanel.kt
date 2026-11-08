@@ -54,7 +54,7 @@ fun ScopePanel() {
         trailing = {
             StatusDot(active = SurgicalSession.recording, color = Palette.Red, label = "REC")
             Spacer(Modifier.width(10.dp))
-            Text(text = "${(zoom * 10).toInt() / 10f}x", color = Palette.Violet, fontSize = 12.sp, fontFamily = FontFamily.Monospace)
+            Text(text = "%.2fx".format(zoom), color = Palette.Violet, fontSize = 12.sp, fontFamily = FontFamily.Monospace)
         }
     ) {
         Box(
@@ -64,13 +64,24 @@ fun ScopePanel() {
                 .background(Color(0xFF05070B))
         ) {
             Canvas(Modifier.fillMaxSize()) {
-                val r = min(size.width, size.height) * 0.45f
+                val fluorescent = SurgicalSession.autoFluorescence
+                // 缩放矩阵：视野半径随放大倍数变化，等价于内窥镜光学 zoom
+                val r = min(size.width, size.height) * 0.45f * zoom
                 val center = Offset(size.width / 2f, size.height / 2f)
+
+                // 成像模式着色：白光为组织原色；荧光为近红外伪彩（青底 + 绿色富集信号）
+                val tissueOuter = if (fluorescent) Color(0xFF17B6A4) else Color(0xFFC0705C)
+                val tissueMid = if (fluorescent) Color(0xFF0A5C68) else Color(0xFF6E2A22)
+                val tissueInner = if (fluorescent) Color(0xFF03161A) else Color(0xFF1A0A08)
+                val foldColor = if (fluorescent) Color(0xFF7DF3DE) else Color(0xFFF0A78F)
+                val vesselColor = if (fluorescent) Color(0xFF00E8A6) else Color(0xFF7E1B18)
+                val shaftA = if (fluorescent) Color(0xFF11262E) else Color(0xFF2C333D)
+                val shaftB = if (fluorescent) Color(0xFF1B3742) else Color(0xFF3A424E)
 
                 // 圆形视野底：组织底色
                 drawCircle(
                     brush = Brush.radialGradient(
-                        colors = listOf(Color(0xFFC0705C), Color(0xFF6E2A22), Color(0xFF1A0A08)),
+                        colors = listOf(tissueOuter, tissueMid, tissueInner),
                         center = center,
                         radius = r
                     ),
@@ -120,7 +131,7 @@ fun ScopePanel() {
                         }
                         drawPath(
                             path = path,
-                            color = Color(0xFF7E1B18).copy(alpha = 0.45f),
+                            color = vesselColor.copy(alpha = if (fluorescent) 0.68f else 0.45f),
                             style = Stroke(width = r * 0.012f)
                         )
                     }
@@ -133,16 +144,35 @@ fun ScopePanel() {
                         center = Offset(center.x + r * 0.32f, center.y + r * 0.22f)
                     )
 
+                    // 荧光模式的富集信号：病灶区叠加绿色辉光，与白光模式形成可辨差异
+                    if (fluorescent) {
+                        val glow = 0.55f + 0.35f * sin(t * 3f)
+                        val spot = Offset(center.x + r * 0.32f, center.y + r * 0.22f)
+                        drawCircle(
+                            brush = Brush.radialGradient(
+                                colors = listOf(
+                                    Color(0xFF39FFB0).copy(alpha = 0.52f * glow),
+                                    Color(0xFF39FFB0).copy(alpha = 0.10f * glow),
+                                    Color.Transparent
+                                ),
+                                center = spot,
+                                radius = r * 0.36f
+                            ),
+                            radius = r * 0.36f,
+                            center = spot
+                        )
+                    }
+
                     // 器械：分离钳两根
                     val bite = sin(t * 0.8f) * r * 0.03f
                     drawLine(
-                        color = Color(0xFF2C333D),
+                        color = shaftA,
                         start = Offset(center.x - r * 1.1f, center.y + r * 0.95f),
                         end = Offset(center.x - r * 0.12f + bite, center.y),
                         strokeWidth = r * 0.07f
                     )
                     drawLine(
-                        color = Color(0xFF3A424E),
+                        color = shaftB,
                         start = Offset(center.x + r * 1.1f, center.y + r * 0.95f),
                         end = Offset(center.x + r * 0.12f - bite, center.y),
                         strokeWidth = r * 0.07f
@@ -201,15 +231,21 @@ fun ScopePanel() {
                     textSize = 10.sp.toPx()
                     color = android.graphics.Color.argb(200, 233, 241, 251)
                 }
+                // 标注：坐标随缩放收敛到画布内，避免大倍率下文字越界不可读
+                val labelX = (center.x - r).coerceIn(6f, (size.width - 96f).coerceAtLeast(6f))
+                val topY = (center.y - r - 6f).coerceIn(12f, (size.height - 4f).coerceAtLeast(12f))
+                val botY = (center.y + r + 16f).coerceIn(12f, (size.height - 4f).coerceAtLeast(12f))
                 drawContext.canvas.nativeCanvas.apply {
-                    drawText("30° 镜  ·  ${(zoom * 10).toInt() / 10f}x", center.x - r, center.y - r - 6f, paint)
-                    drawText("光斑 42%", center.x - r, center.y + r + 16f, paint)
+                    drawText("30° 镜  ·  %.2fx".format(zoom), labelX, topY, paint)
+                    drawText(if (fluorescent) "近红外 800nm  ·  增益 42%" else "白光  ·  光斑 42%", labelX, botY, paint)
                 }
 
                 if (SurgicalSession.recording) {
                     paint.color = android.graphics.Color.argb(230, 255, 84, 104)
+                    val recX = (center.x + r - 46.sp.toPx())
+                        .coerceIn(6f, (size.width - 46.sp.toPx() - 6f).coerceAtLeast(6f))
                     drawContext.canvas.nativeCanvas.apply {
-                        drawText("● REC", center.x + r - 46.sp.toPx(), center.y - r - 6f, paint)
+                        drawText("● REC", recX, topY, paint)
                     }
                 }
             }
