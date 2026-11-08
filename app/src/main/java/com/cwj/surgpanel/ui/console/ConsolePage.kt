@@ -25,16 +25,22 @@ import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.cwj.surgpanel.FOCUS_ID
 import com.cwj.surgpanel.IMAGING_ID
 import com.cwj.surgpanel.SCOPE_ID
 import com.cwj.surgpanel.VITALS_ID
+import com.cwj.surgpanel.core.AiController
 import com.cwj.surgpanel.core.AlarmLevel
+import com.cwj.surgpanel.core.AppMode
 import com.cwj.surgpanel.core.LinkMode
 import com.cwj.surgpanel.core.Modality
 import com.cwj.surgpanel.core.SurgicalSession
+import com.cwj.surgpanel.data.AiGateway
+import com.cwj.surgpanel.data.InstrumentRegistry
 import com.cwj.surgpanel.ui.common.ChipButton
 import com.cwj.surgpanel.ui.common.KeyValueRow
 import com.cwj.surgpanel.ui.common.PanelFrame
+import com.cwj.surgpanel.ui.common.PrimaryButton
 import com.cwj.surgpanel.ui.common.SectionLabel
 import com.cwj.surgpanel.ui.common.StatusDot
 import com.cwj.surgpanel.ui.theme.Palette
@@ -57,6 +63,15 @@ fun ConsolePage() {
     LaunchedEffect(Unit) {
         opened.forEach { id ->
             runCatching { navigator.openWindowContainer(id = id, tag = PANEL_TAG) }
+        }
+    }
+
+    // 智能分析产出结论后，把聚焦窗自动前置到医生面前
+    val incident = SurgicalSession.incident
+    LaunchedEffect(incident) {
+        if (incident != null) {
+            runCatching { navigator.openWindowContainer(id = FOCUS_ID, tag = PANEL_TAG) }
+            opened = opened + FOCUS_ID
         }
     }
 
@@ -96,12 +111,62 @@ fun ConsolePage() {
         Row(Modifier.fillMaxSize()) {
             // ---------- 左栏：窗口与联动控制 ----------
             Column(Modifier.weight(1.15f)) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    SectionLabel("运行模式")
+                    Spacer(Modifier.weight(1f))
+                    AppMode.values().forEach { mode ->
+                        ChipButton(
+                            label = mode.label,
+                            active = SurgicalSession.appMode == mode,
+                            accent = if (mode == AppMode.DEMO) Palette.Amber else Palette.Mint
+                        ) {
+                            if (SurgicalSession.appMode != mode) {
+                                SurgicalSession.appMode = mode
+                                SurgicalSession.log("运行模式：${mode.label}")
+                                if (mode == AppMode.DEMO) AiController.onResolved()
+                            }
+                        }
+                        Spacer(Modifier.width(8.dp))
+                    }
+                }
+                Spacer(Modifier.height(5.dp))
+                Text(
+                    text = SurgicalSession.appMode.hint,
+                    color = Palette.TextDim,
+                    fontSize = 11.sp
+                )
+                Spacer(Modifier.height(9.dp))
+                PrimaryButton(
+                    title = "一键演示 · 术中意外应急处置",
+                    subtitle = if (SurgicalSession.appMode == AppMode.DEMO) {
+                        "点击后自动定位病灶、虚拟放大、剖切并输出处置建议"
+                    } else {
+                        "产品模式下由监护数据越限自动触发，此处用于现场手动复核"
+                    },
+                    accent = Palette.Red
+                ) { AiController.triggerDemo() }
+                Spacer(Modifier.height(7.dp))
+                Text(
+                    text = when {
+                        SurgicalSession.aiRunning -> "智能分析执行中 · ${SurgicalSession.focusStage.label}"
+                        incident != null -> "事件 ${incident.code} · ${incident.region}"
+                        else -> "智能分析待命 · 引擎 ${AiGateway.engineLabel()}"
+                    },
+                    color = if (incident != null) Palette.Red else Palette.TextDim,
+                    fontSize = 11.sp
+                )
+
+                Spacer(Modifier.height(14.dp))
                 SectionLabel("空间窗口 · 可拖拽 / 缩放 / 吸附")
                 Spacer(Modifier.height(8.dp))
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     ChipButton("影像窗", IMAGING_ID in opened, Palette.Cyan) { switchWindow(IMAGING_ID) }
                     ChipButton("体征窗", VITALS_ID in opened, Palette.Mint) { switchWindow(VITALS_ID) }
                     ChipButton("内窥镜", SCOPE_ID in opened, Palette.Violet) { switchWindow(SCOPE_ID) }
+                    ChipButton("聚焦窗", FOCUS_ID in opened, Palette.Red) { switchWindow(FOCUS_ID) }
                     ChipButton(
                         label = "全部展开",
                         active = false,
@@ -165,6 +230,7 @@ fun ConsolePage() {
                     ChipButton("时间轴复位", false, Palette.TextBody) {
                         SurgicalSession.elapsedSec = 0
                         SurgicalSession.manualBleed = false
+                        AiController.onResolved()
                         SurgicalSession.log("演示复位：时间轴归零")
                     }
                 }
@@ -212,11 +278,23 @@ fun ConsolePage() {
                     Palette.Cyan
                 )
 
+                Spacer(Modifier.height(10.dp))
+                SectionLabel("仪器与接口", Palette.Cyan)
+                Spacer(Modifier.height(6.dp))
+                KeyValueRow("监护仪", InstrumentRegistry.vitalsLabel())
+                KeyValueRow("影像源", InstrumentRegistry.imagingLabel())
+                KeyValueRow("内窥镜", InstrumentRegistry.endoscopeLabel())
+                KeyValueRow(
+                    "推理服务",
+                    if (AiGateway.remoteConfigured) AiGateway.endpoint else "未配置 · 本地规则引擎",
+                    if (AiGateway.remoteConfigured) Palette.Mint else Palette.TextBody
+                )
+
                 Spacer(Modifier.height(14.dp))
                 SectionLabel("实时事件流", Palette.Amber)
                 Spacer(Modifier.height(8.dp))
                 Column {
-                    SurgicalSession.events.take(6).forEach { event ->
+                    SurgicalSession.events.take(5).forEach { event ->
                         Row(
                             modifier = Modifier.fillMaxWidth().padding(vertical = 3.dp),
                             verticalAlignment = Alignment.CenterVertically

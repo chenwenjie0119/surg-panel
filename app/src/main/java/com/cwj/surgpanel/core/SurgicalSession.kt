@@ -62,6 +62,24 @@ object SurgicalSession {
     // ---- 事件演示：手动诱发术野渗血（便于路演复现告警联动） ----
     var manualBleed by mutableStateOf(false)
 
+    // ---- 运行模式 ----
+    var appMode by mutableStateOf(AppMode.DEMO)
+
+    // ---- 智能异常处置 ----
+    var incident by mutableStateOf<IncidentCase?>(null)
+    var focusStage by mutableStateOf(FocusStage.IDLE)
+    var focusAnim by mutableFloatStateOf(0f)
+    var aiRunning by mutableStateOf(false)
+    var aiEngine by mutableStateOf("本地规则引擎")
+    var aiLatencyMs by mutableIntStateOf(0)
+
+    fun clearIncident() {
+        incident = null
+        focusStage = FocusStage.IDLE
+        focusAnim = 0f
+        aiRunning = false
+    }
+
     // ---- 联动与布局 ----
     var linkMode by mutableStateOf(LinkMode.FULL)
     var layoutPreset by mutableStateOf(LayoutPreset.STANDARD)

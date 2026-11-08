@@ -160,6 +160,50 @@ fun ChipButton(
     }
 }
 
+/** 前方主操作按钮：整行可点，用于一键触发类动作。 */
+@Composable
+fun PrimaryButton(
+    title: String,
+    subtitle: String,
+    accent: Color = Palette.Red,
+    enabled: Boolean = true,
+    onClick: () -> Unit
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(9.dp))
+            .background(if (enabled) accent.copy(alpha = 0.14f) else Palette.Panel)
+            .border(
+                1.dp,
+                if (enabled) accent.copy(alpha = 0.7f) else Palette.Stroke,
+                RoundedCornerShape(9.dp)
+            )
+            .clickable(enabled = enabled) { onClick() }
+            .padding(horizontal = 14.dp, vertical = 11.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Box(
+            Modifier
+                .size(width = 4.dp, height = 30.dp)
+                .background(if (enabled) accent else Palette.Stroke)
+        )
+        Spacer(Modifier.width(12.dp))
+        Column(Modifier.weight(1f)) {
+            Text(
+                text = title,
+                color = if (enabled) Palette.TextPrimary else Palette.TextDim,
+                fontSize = 14.sp,
+                fontWeight = FontWeight.SemiBold
+            )
+            Spacer(Modifier.height(3.dp))
+            Text(text = subtitle, color = Palette.TextDim, fontSize = 10.sp)
+        }
+        Spacer(Modifier.width(10.dp))
+        Text(text = ">", color = if (enabled) accent else Palette.TextDim, fontSize = 16.sp)
+    }
+}
+
 /** 键值数据行。 */
 @Composable
 fun KeyValueRow(key: String, value: String, valueColor: Color = Palette.TextPrimary) {
