@@ -43,6 +43,7 @@ pico-cli capture screenshot --out shots/live.png
 | `imaging-panel` | CT/MRI axial slice, measurement, window width/level, slice stepping | Planar | 860x700 | To the **right** of the console |
 | `vitals-panel` | Heart rate, blood pressure, SpO2, EtCO2, three-lead waveforms | Planar | 780x440 | **Above** the console |
 | `scope-panel` | Circular endoscopic field with instrument, fold and bleeding rendering | Planar | 720x640 | To the **left** of the console |
+| `focus-panel` | Incident focus: virtual magnification, cut-away cross-section, findings, countermeasures | Planar | 760x780 | Left of the console, raised to the front when an anomaly fires |
 
 - Placement uses the official `Placement.placement(anchor, Orientation.Right/Top/Left, offset)`. Anchors are resolved by container ID from `PlacementContext.containers`, with a `Placement.none()` fallback so a missing anchor never crashes startup.
 - Panels open and close through `LocalSpatialNavigator.current.openWindowContainer(id, tag)` / `closeWindowContainer(id, tag)`. A fixed `tag` puts the call in **reuse mode**: reopening brings the existing window to the front instead of stacking duplicates.
@@ -56,26 +57,68 @@ pico-cli capture screenshot --out shots/live.png
 com.cwj.surgpanel
 ├── Main.kt                    Spatial entry: DefaultWindowContainer plus three WindowContainer declarations and anchoring
 ├── core/
-│   ├── SurgicalSession.kt     Global session state (Compose State, single source): vitals, slice, modality, linkage mode, event log
-│   └── SignalEngine.kt        Pure signal generation: ECG/ABP/pulse waveforms, tissue density field, surgical field texture
+│   ├── SurgicalSession.kt     Global session state (Compose State, single source): vitals, slice, modality, operating mode, incident, event log
+│   ├── SignalEngine.kt        Pure signal generation: ECG/ABP/pulse waveforms, tissue density field, surgical field texture
+│   ├── AppMode.kt             Operating-mode switch (product / demo) plus display badge
+│   ├── AiModels.kt            Incident case, focus stages, findings, actions, request/response contracts
+│   └── AiController.kt        Five-stage chain: localise -> magnify -> cut away -> analyse -> countermeasures
+├── data/
+│   ├── InstrumentPort.kt      Device ports (vitals / imaging / endoscope) and the registry product mode attaches to
+│   └── AiAdvisor.kt           AI API client: remote HTTP JSON inference, local rule engine as fallback
 ├── platform/
 │   ├── LaunchActivity.kt      Host activity
 │   ├── SpatialApplication.kt  Boots the spatial tree and starts the surgery clock
-│   └── SessionClock.kt        100 ms data bus: vitals drift, bleeding events, alarm grading, phase progression
+│   └── SessionClock.kt        100 ms data bus: vitals drift, external device frames, bleeding events, alarm grading, phase progression
 └── ui/
     ├── theme/Palette.kt       Dark operating-room palette (low luminance, low saturation, layered alarm colors)
-    ├── common/PanelFrame.kt   Panel chrome: status lamp, pill buttons, key-value rows, frame clock
-    ├── console/ConsolePage.kt Master console
+    ├── common/PanelFrame.kt   Panel chrome: status lamp, pill buttons, primary button, key-value rows, frame clock
+    ├── console/ConsolePage.kt Master console, mode switch and front-panel drill button
     ├── imaging/ImagingPanel.kt
     ├── vitals/VitalsPanel.kt
-    └── scope/ScopePanel.kt
+    ├── scope/ScopePanel.kt
+    └── focus/FocusPanel.kt    Incident focus: magnification, cut-away cross-section, findings, countermeasures
 ```
 
 **State and view are decoupled.** Every panel only reads `SurgicalSession`; every write is centralized in `SessionClock` (a background daemon thread). Closing, reopening or moving a window therefore never interrupts the data flow, and swapping in real device sources later means replacing `SessionClock` with a DICOM / patient monitor / endoscope SDK adapter without touching any panel.
 
 ---
 
-## 4. Cross-panel linkage
+## 4. Operating modes
+
+The console toggles between two modes. Both drive the same four panels and the same session state, so the spatial layout does not change when a real device is plugged in.
+
+| | Demo mode | Product mode |
+| --- | --- | --- |
+| Data source | Local simulation inside `SessionClock`: deterministic and repeatable | Frames polled from `InstrumentRegistry`; local simulation only as fallback when no device is attached |
+| Trigger | One tap on the front-panel drill button | Automatic: alarm grading in `SessionClock` calls `AiController.onAlarmTriggered` |
+| Purpose | Road show, regression check, identical result on every tap | Live use with real instruments and a remote inference service |
+
+**Demo mode.** The whole chain sits behind a single button placed in front of the console: one tap injects an intraoperative bleeding scenario, walks the focus window through localise -> magnify -> cut away -> analyse -> countermeasures in about 16 s, then leaves the conclusion on screen. Tapping again while it runs collapses it; the console's *reset timeline* clears it.
+
+**Product mode.** Same chain, both ends replaced by interfaces:
+
+| Port | File | Contract |
+| --- | --- | --- |
+| Patient monitor / anaesthesia machine / central station | `data/InstrumentPort.kt` -> `VitalSignSource` | `open()` / `poll(): VitalsFrame?` / `close()`; register with `InstrumentRegistry.attachVitals` |
+| PACS / DICOM workstation / intraoperative C-arm | `InstrumentPort.kt` -> `ImagingSource` | `sliceCount()`, `pollSliceIndex()`; register with `attachImaging` |
+| Surgical field camera | `InstrumentPort.kt` -> `EndoscopeSource` | `pollZoom()`; register with `attachEndoscope` |
+| AI service | `data/AiAdvisor.kt` -> `AiAdvisor` | `RemoteAiAdvisor(endpoint, apiKey, model)` posts plain JSON over HTTP (2.5 s connect / 3 s read); any timeout or non-2xx response falls back to `LocalAiAdvisor`, so an unplugged network never breaks the OR |
+
+`AiGateway.endpoint` / `apiKey` / `model` are the only settings a deployment has to fill in; keyed vendors are not hard-coded anywhere. The request body carries the case, the patient, the vitals snapshot, the current slice and the trigger; the response is expected to return `region`, `cause`, `targetSlice`, `confidence`, `findings[]` and `actions[]`.
+
+**The assist chain** (`core/AiController.kt`) is what the surgeon sees when something goes wrong:
+
+1. **Monitor** - vitals are graded every 100 ms; `CRITICAL` starts the chain in product mode, the button starts it in demo mode.
+2. **Magnify** - a dedicated `focus-panel` opens in front of the user and the affected region is shown enlarged 3.4x with a scale bar and a pulsing lesion marker.
+3. **Cut away** - the same canvas transitions into a cross-section: tissue layers, the bleeding vessel and a depth ruler.
+4. **Analyse** - findings are listed together with measured evidence (pressure slope, compensatory heart rate, slice index, clot size).
+5. **Countermeasures** - ranked actions with instruments and time targets, e.g. clip the feeding branch, lower pneumoperitoneum, pressurised crystalloid, activate cross-matched blood.
+
+No panel talks to the network or to a device directly: everything is written into the single session state, which keeps the chain replayable frame by frame.
+
+---
+
+## 5. Cross-panel linkage
 
 | Linkage | Trigger | Behaviour |
 | --- | --- | --- |
@@ -98,7 +141,7 @@ The console's demo section exposes **trigger surgical bleeding** (toggle the ble
 
 ---
 
-## 5. Scoring alignment
+## 6. Scoring alignment
 
 | Dimension | Weight | How this project covers it |
 | --- | --- | --- |
@@ -111,17 +154,17 @@ The console's demo section exposes **trigger surgical bleeding** (toggle the ble
 
 ---
 
-## 6. Extension roadmap
+## 7. Extension roadmap
 
 1. **Real imaging.** Replace the bitmap baking function in `ImagingPanel` with a trimmed dcm4che DICOM decoder; slice axis comes from the series `ImageOrientationPatient`.
-2. **Real vitals.** Turn `SessionClock` into a WebSocket or HL7 v2 adapter while keeping the same Compose State exports.
+2. **Real instruments.** Ship `VitalSignSource` / `ImagingSource` / `EndoscopeSource` adapters (WebSocket, HL7 v2, DICOM gateway, serial) and register them in `InstrumentRegistry`; no panel code changes.
 3. **Spatial enhancement.** Bring in organ models (.usdz) authored in Spatial Editor, render them with `Form.Volumetric` alongside the Planar panels, and use `LocalVolumeViewPointManager` for gaze-driven region-of-interest hints.
 4. **Hand and eye interaction.** Adopt `spatial.ui.sense` / `tracking` for gaze-to-focus, pinch-drag distance locking and two-handed scaling.
 5. **Performance.** Adaptive waveform sampling step and an LRU cache for slice bitmaps (currently redrawn per frame, already stable on the emulator).
 
 ---
 
-## 7. Screenshots
+## 8. Screenshots
 
 All shots are captured from the PICO Emulator with `adb exec-out screencap`.
 
@@ -135,3 +178,4 @@ All shots are captured from the PICO Emulator with `adb exec-out screencap`.
 ---
 
 *Built for the PICO Space Program 2026. Pure Kotlin, PICO Spatial SDK, no Unity, no third-party 3D engine.*
+

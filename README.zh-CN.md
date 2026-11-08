@@ -43,6 +43,7 @@ pico-cli capture screenshot --out shots/live.png
 | `imaging-panel` | CT/MRI 轴位切面 + 测量/窗宽窗位/切层控制 | Planar | 860x700 | 控制台**右**侧 |
 | `vitals-panel` | 心率/血压/血氧/呼末二氧化碳 + 三导波形 | Planar | 780x440 | 控制台**上**方 |
 | `scope-panel` | 内窥镜圆形视野 + 器械/皱襞/渗血渲染 | Planar | 720x640 | 控制台**左**侧 |
+| `focus-panel` | 智能异常处置：虚拟放大、剖面剖切、证据与处置建议 | Planar | 760x780 | 控制台左侧，出现异常时自动前置 |
 
 - 排布使用官方 `Placement.placement(anchor, Orientation.Right/Top/Left, offset)`，锚点由 `PlacementContext.containers` 按 ID 精确选取，锚点缺失时降级 `Placement.none()`，不会因加载顺序崩溃。
 - 三个面板的开合通过 `LocalSpatialNavigator.current.openWindowContainer(id, tag)` / `closeWindowContainer(id, tag)` 控制；同一 `id` + 同一 `tag` 走**复用模式**，重复打开只前置窗口，不会堆叠副本。
@@ -56,26 +57,68 @@ pico-cli capture screenshot --out shots/live.png
 com.cwj.surgpanel
 ├── Main.kt                    空间入口：DefaultWindowContainer + 3 个 WindowContainer 声明与锚定
 ├── core/
-│   ├── SurgicalSession.kt     全局会话状态（Compose State 单源）：体征、切层、模态、联动模式、事件流
-│   └── SignalEngine.kt        纯函数信号生成：ECG/ABP/脉搏波形、组织密度场、术野纹理
+│   ├── SurgicalSession.kt     全局会话状态（Compose State 单源）：体征、切层、模态、运行模式、异常事件、事件流
+│   ├── SignalEngine.kt        纯函数信号生成：ECG/ABP/脉搏波形、组织密度场、术野纹理
+│   ├── AppMode.kt             运行模式枚举（产品 / 演示）与显示徽标
+│   ├── AiModels.kt            异常事件、聚焦阶段、证据、处置建议与请求/响应契约
+│   └── AiController.kt        五阶段链路：定位 -> 放大 -> 剖切 -> 分析 -> 处置
+├── data/
+│   ├── InstrumentPort.kt      仪器接口层（体征 / 影像 / 内窥镜）与产品模式注册表
+│   └── AiAdvisor.kt           AI 接口层：远程 HTTP JSON 推理 + 本地规则引擎兜底
 ├── platform/
 │   ├── LaunchActivity.kt      承载 Activity
 │   ├── SpatialApplication.kt  启动 spatial 树 + 启动手术时钟
-│   └── SessionClock.kt        100 ms 步进的数据总线：体征漂移、出血事件、告警判级、阶段推进
+│   └── SessionClock.kt        100 ms 步进的数据总线：体征漂移、外部设备帧、出血事件、告警判级、阶段推进
 └── ui/
     ├── theme/Palette.kt       手术室暗色配色（低亮度、低饱和、告警色分层）
-    ├── common/PanelFrame.kt   面板骨架/状态灯/胶囊按钮/键值行/帧时钟
-    ├── console/ConsolePage.kt 总控台
+    ├── common/PanelFrame.kt   面板骨架/状态灯/胶囊按钮/主按钮/键值行/帧时钟
+    ├── console/ConsolePage.kt 总控台：模式切换与前方测试按钮
     ├── imaging/ImagingPanel.kt
     ├── vitals/VitalsPanel.kt
-    └── scope/ScopePanel.kt
+    ├── scope/ScopePanel.kt
+    └── focus/FocusPanel.kt    智能异常处置：放大、剖切、证据与处置建议
 ```
 
 **关键设计：状态与视图解耦。** 所有面板只读 `SurgicalSession`，所有写入集中在 `SessionClock`（后台守护线程）。因此任一窗口被关闭、重开、移动都不会中断整台手术的数据流，也为后续接入真实设备数据留出替换点——把 `SessionClock` 换成 DICOM/监护仪/内窥镜 SDK 的数据源即可。
 
 ---
 
-## 4. 联动机制
+## 4. 运行模式
+
+控制台可在两种模式间切换。两种模式驱动同一批面板与同一份会话状态，因此接入真实设备时空间布局不变。
+
+| | 演示模式 | 产品模式 |
+| --- | --- | --- |
+| 数据来源 | `SessionClock` 本地推演，确定性强、可重复 | 从 `InstrumentRegistry` 轮询真实帧；未接入设备时回落到本地推演 |
+| 触发方式 | 面前测试按钮一键触发 | 自动：`SessionClock` 的告警判级调用 `AiController.onAlarmTriggered` |
+| 用途 | 路演、回归验证，每次点击结果一致 | 真实仪器 + 远程推理服务实盘使用 |
+
+**演示模式**：整条链路收在一个放在医生正前方的按钮后面。点击一次即注入术中渗血场景，聚焦窗按「定位 -> 放大 -> 剖切 -> 分析 -> 处置」推进，全程约 16 s，结束后结论留在屏幕上；运行中再次点击即收起，控制台的「时间轴复位」也会清空事件。
+
+**产品模式**：同一条链路，两端换成接口：
+
+| 接口 | 文件 | 契约 |
+| --- | --- | --- |
+| 监护仪 / 麻醉机 / 中央站 | `data/InstrumentPort.kt` -> `VitalSignSource` | `open()` / `poll(): VitalsFrame?` / `close()`，通过 `InstrumentRegistry.attachVitals` 注册 |
+| PACS / DICOM 工作站 / 术中 C 臂 | `InstrumentPort.kt` -> `ImagingSource` | `sliceCount()`、`pollSliceIndex()`，通过 `attachImaging` 注册 |
+| 术野摄像 | `InstrumentPort.kt` -> `EndoscopeSource` | `pollZoom()`，通过 `attachEndoscope` 注册 |
+| AI 服务 | `data/AiAdvisor.kt` -> `AiAdvisor` | `RemoteAiAdvisor(endpoint, apiKey, model)` 以原生 HTTP JSON 请求（连接 2.5 s / 读取 3 s）；超时或非 2xx 一律回落到 `LocalAiAdvisor`，断网不会中断手术 |
+
+部署方只需填写 `AiGateway.endpoint` / `apiKey` / `model`，代码中不写死任何厂商信息。请求体携带病例、患者、体征快照、当前断面与触发来源；响应按 `region` / `cause` / `targetSlice` / `confidence` / `findings[]` / `actions[]` 解析。
+
+**AI 辅助链路**（`core/AiController.kt`）在异常出现时依次呈现：
+
+1. **监控**——体征按 100 ms 分级，产品模式下 `CRITICAL` 自动启动链路，演示模式下由按钮启动。
+2. **放大**——独立的 `focus-panel` 自动出现在医生正前方，患者相应部位以 3.4x 虚拟放大呈现，带比例尺与脉动病灶标记。
+3. **剖切**——同一画布过渡为剖面：组织层次、出血血管与深度标尺。
+4. **分析**——逐条列证据并附实测数据（收缩压斜率、代偿心率、断面序号、血凝块尺寸）。
+5. **处置**——按优先级给出措施、器械与时限，例如夹闭供血分支、下调气腹压、加压晶体液、启动备血。
+
+所有面板都不直接访问网络或设备：数据统一写入单一会话状态，因此整条链路可逐帧复现。
+
+---
+
+## 5. 联动机制
 
 | 联动 | 触发 | 表现 |
 | --- | --- | --- |
@@ -98,7 +141,7 @@ alarm=NONE      t=68s+  hr=79  sbp=116 spo2=99  bleed=false
 
 ---
 
-## 5. 评分权重对齐
+## 6. 评分权重对齐
 
 | 维度 | 权重 | 本项目落点 |
 | --- | --- | --- |
@@ -111,17 +154,17 @@ alarm=NONE      t=68s+  hr=79  sbp=116 spo2=99  bleed=false
 
 ---
 
-## 6. 后续扩展路线
+## 7. 后续扩展路线
 
 1. **真实影像**：`ImagingPanel` 的位图烘焙函数替换为 DICOM 解码（dcm4che 轻量裁剪版），切层轴取自 Series 的 ImageOrientationPatient。
-2. **真实体征**：`SessionClock` 改为 WebSocket / HL7 v2 适配器，保留同样的 State 出口。
+2. **真实仪器**：实现 `VitalSignSource` / `ImagingSource` / `EndoscopeSource` 适配（WebSocket / HL7 v2 / DICOM 网关 / 串口），注册进 `InstrumentRegistry` 即可，面板代码零改动。
 3. **空间增强**：引入 Spatial Editor 产出的器官模型（.usdz），以 `Form.Volumetric` 展示，与 Planar 面板做 depth 关系；使用 `LocalVolumeViewPointManager` 做视角驱动的重点区域提示。
 4. **手眼协同**：接入 `spatial.ui.sense` / `tracking`，实现"注视即聚焦"、捏合拖动距离锁定、双手缩放。
 5. **性能**：波形 Canvas 采样步长自适应、切面位图 LRU 缓存（当前每帧按需重绘，模拟器上已稳定）。
 
 ---
 
-## 7. 截图
+## 8. 截图
 
 均为 PICO Emulator 实拍（`adb exec-out screencap`）。
 
@@ -135,3 +178,4 @@ alarm=NONE      t=68s+  hr=79  sbp=116 spo2=99  bleed=false
 ---
 
 *为 PICO Space Program 2026 开发。纯 Kotlin + PICO Spatial SDK，不依赖 Unity 或任何第三方 3D 引擎。*
+
