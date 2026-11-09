@@ -222,7 +222,17 @@ The operator sees the lesion but cannot point at it for the assistant.
 
 ---
 
-## 9. Screenshots
+## 9. AI tooling used
+
+Disclosure for the submission's creation-process entry:
+
+| Field | Value |
+|---|---|
+| AI IDE | Marvis desktop agent, driven from the command line rather than a graphical AI IDE |
+| Main models | Hy4, DeepSeek V4.1 flash |
+| Notes | Used for module scaffolding, code review and documentation drafting. Spatial placement constants, alarm hysteresis thresholds, the 100 ms session clock and all panel rendering were reviewed and tuned by hand. PICO CLI 0.6.1 handled emulator provisioning and debug packaging. |
+
+## 10. Screenshots
 
 All shots are captured from the PICO Emulator with `adb exec-out screencap`.
 
