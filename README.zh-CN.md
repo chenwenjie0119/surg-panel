@@ -44,6 +44,7 @@ pico-cli capture screenshot --out shots/live.png
 | `vitals-panel` | 心率/血压/血氧/呼末二氧化碳 + 三导波形 | Planar | 780x440 | 控制台**上**方 |
 | `scope-panel` | 内窥镜圆形视野 + 器械/皱襞/渗血渲染 | Planar | 720x640 | 控制台**左**侧 |
 | `focus-panel` | 智能异常处置：虚拟放大、剖面剖切、证据与处置建议 | Planar | 760x780 | 控制台左侧，出现异常时自动前置 |
+| `record-panel` | 无接触病历调阅：既往病史、影像与过敏史要点，流式文本呈现 | Planar | 560x400 | 默认不开启；唤出后位于影像窗右侧 |
 
 - 排布使用官方 `Placement.placement(anchor, Orientation.Right/Top/Left, offset)`，锚点由 `PlacementContext.containers` 按 ID 精确选取，锚点缺失时降级 `Placement.none()`，不会因加载顺序崩溃。
 - 三个面板的开合通过 `LocalSpatialNavigator.current.openWindowContainer(id, tag)` / `closeWindowContainer(id, tag)` 控制；同一 `id` + 同一 `tag` 走**复用模式**，重复打开只前置窗口，不会堆叠副本。
@@ -61,23 +62,36 @@ com.cwj.surgpanel
 │   ├── SignalEngine.kt        纯函数信号生成：ECG/ABP/脉搏波形、组织密度场、术野纹理
 │   ├── AppMode.kt             运行模式枚举（产品 / 演示）与显示徽标
 │   ├── AiModels.kt            异常事件、聚焦阶段、证据、处置建议与请求/响应契约
-│   └── AiController.kt        五阶段链路：定位 -> 放大 -> 剖切 -> 分析 -> 处置
+│   ├── AiController.kt        五阶段链路：定位 -> 放大 -> 剖切 -> 分析 -> 处置
+│   ├── AiNarrator.kt          叙事块流式打字机：token 队列、一块一任务、可取消
+│   ├── CaseRecord.kt          病历条目数据，供无接触病历面板调阅
+│   ├── VoiceCommandRouter.kt  语音文法：口令归一化、出血查询匹配、告警意图分发
+│   ├── WindowPoseModel.kt     五窗设计位姿（米制，原点为指挥台中心）
+│   └── PerfGovernor.kt        仅视觉降级：重绘帧率与波形采样步长，别的什么都不碰
 ├── data/
 │   ├── InstrumentPort.kt      仪器接口层（体征 / 影像 / 内窥镜）与产品模式注册表
 │   └── AiAdvisor.kt           AI 接口层：远程 HTTP JSON 推理 + 本地规则引擎兜底
 ├── platform/
 │   ├── LaunchActivity.kt      承载 Activity
 │   ├── SpatialApplication.kt  启动 spatial 树 + 启动手术时钟
-│   └── SessionClock.kt        100 ms 步进的数据总线：体征漂移、外部设备帧、出血事件、告警判级、阶段推进
+│   ├── SessionClock.kt        100 ms 步进的数据总线：体征漂移、外部设备帧、出血事件、告警判级、阶段推进
+│   ├── GazePinchController.kt 眼动射线 + HMD 射线兜底、注视驻留高亮、捏合确认
+│   └── VoiceInput.kt          控制台麦克风按钮背后的系统语音识别封装
 └── ui/
     ├── theme/Palette.kt       手术室暗色配色（低亮度、低饱和、告警色分层）
     ├── common/PanelFrame.kt   面板骨架/状态灯/胶囊按钮/主按钮/键值行/帧时钟
+├── common/MiniRadar.kt    五窗俯视 2D 雷达与实时坐标栈
     ├── console/ConsolePage.kt 总控台：模式切换与前方测试按钮
     ├── imaging/ImagingPanel.kt
     ├── vitals/VitalsPanel.kt
     ├── scope/ScopePanel.kt
-    └── focus/FocusPanel.kt    智能异常处置：放大、剖切、证据与处置建议
+    ├── focus/FocusPanel.kt    智能异常处置：放大、剖切、证据与处置建议
+    └── record/RecordPanel.kt  无接触病历面板：眼动/语音唤出、病史流式输出、NO-TOUCH 标识
 ```
+
+**注视、捏合与语音。** `GazePinchController` 把眼动前向向量与五个窗口平面求交、取最近命中；同一命中持续到 750 ms 驻留窗口的三分之一，该窗口即点亮为聚焦态。聚焦态下捏合强度越过 0.82 触发该窗注册的确认回调，随后锁定 700 ms，一次物理捏合不会触发两次确认。眼动不可用时自动退回 HMD 射线，因此没有眼动追踪的硬件上高亮依然可用。控制台麦克风按钮接系统 `SpeechRecognizer`，口令“立刻查看出血点”（含少量近义变体）会把告警置为危急、置亮出血标记并把聚焦窗前置，走的是与仪器告警同一条状态路径。
+
+**性能契约。** `PerfGovernor` 只能节流“画”的部分：`visualHz` 60 / 30 / 20、`waveStride` 2 / 3.4 / 5，仅作用于 Canvas 波形。`SessionClock` 的 100 ms 守护心跳与告警判级在任何档位都不变；数值文本与红色告警框每次状态变化都重绘；曲线按与帧率无关的步长插值，降帧不会出现跳变；任何情况下都不为省电挂起线程。完整条款见 `docs/architecture.md` 第 15 节。
 
 **关键设计：状态与视图解耦。** 所有面板只读 `SurgicalSession`，所有写入集中在 `SessionClock`（后台守护线程）。因此任一窗口被关闭、重开、移动都不会中断整台手术的数据流，也为后续接入真实设备数据留出替换点——把 `SessionClock` 换成 DICOM/监护仪/内窥镜 SDK 的数据源即可。
 
@@ -141,7 +155,52 @@ alarm=NONE      t=68s+  hr=79  sbp=116 spo2=99  bleed=false
 
 ---
 
-## 6. 评分权重对齐
+## 6. 手术室痛点覆盖
+
+以下四件事决定空间面板在真实手术室里是否可用，而不是只在路演 PPT 上成立。四项均已在本次代码中落地。
+
+### 6.1 无菌与调阅的矛盾：无接触病历调阅
+
+刷手后的主刀不能自己挠头，更不能走过去碰工作站；现在的唯一通道是口述给巡回护士。
+
+- 注视控制台窗口行里的**病历窗**按钮，或直接说「调出患者半年前的冠脉 CT」，一块紧凑的 `record-panel`（560x400）就展开在影像窗右侧，表头带 `NO-TOUCH` 指示灯，让全手术室都能看懂这套交互模型。
+- 条目区标题是“调阅条目 · 注视即切换”：注视某一条即切换病例，全程没有点击。病史用与 AI 建议同一套打字机管线逐字流出（`AiNarrator`：一块一任务、可取消，后台调度器上 22 ms/token，刻意不挂在 100 ms 数据线程上），文本按口述交接的节奏出现，而不是一次性贴满屏。
+- 说一句「关闭」窗口即收。眼动与语音是唯一输入，触摸屏不在这条链路里。
+
+> 实现了完全基于眼动与语音的“无接触无菌交互”，将医生从“必须洗手才能碰设备”的困境中解放出来。
+
+### 6.2 警报疲劳：多参数交叉验证
+
+一个什么都要叫的监护阵列，会把主刀训练成听不见任何声音。
+
+- `SessionClock` 每 100 ms 判定三条独立信号：**心率 > 120**、**收缩压 < 90**、**内窥镜渗出评分 >= 0.62**（评分来自 `SignalEngine.exudateScore` 的组织模型）。只有三项同时满足并保持 1.5 s 才升到 `CRITICAL`——红框闪烁 + 165 ms 急促音；事件日志会打印 `fusion=3[true,true,true]` 供复核。
+- 单项偏高**不触发任何警报**：只在控制台角落亮一个青色小点，体征流程条显示“交叉验证 1/3”并标出是哪一路越限，因此心率 121 单独出现永远不会打断术者。
+- 闸门之外还叠了回滞（进入 HR>112 / SBP<90 / SpO2<94，退出 HR<=106 且 SBP>=96 且 SpO2>=95），一次事件稳定只产生三条日志，不会在阈值边缘抖动。
+
+> 引入了多参数交叉验证的告警机制，有效降低了手术室“警报疲劳”，确保主刀医生的注意力只被真正的危急事件（如急性大出血）打断。
+
+### 6.3 关键时间与耗材追踪
+
+阻断时间、纱布清点与出血量，是空间控制台真正能接管的物流。
+
+- 说「开始阻断」，15:00 的上限会提为波形上方整行大字（26 sp 等宽），因为流程计时必须在一臂之外读得清。剩 3 分钟转琥珀、剩 1 分钟转红；到 15:00 自动解除并把最终时长写入日志，说「结束阻断」则提前归档。
+- 流程条同时展示**估算出血 EBL**（出血时 0.55 ml/tick，平时 0.015 ml/tick）与**纱布 台上/清点**：每次渗血边沿都会让台上纱布数加一，因此关腹前必须对上的那个数字始终在屏幕上。
+- 三项都读同一份会话状态，窗口移走、关闭、重开都不影响计数。
+
+> 不仅关注生理指标，更将手术室关键流程（如血管阻断倒计时、大出血估算）纳入空间管理，打造真正的“全维手术指挥舱”。
+
+### 6.4 主刀视角共享
+
+主刀看得到病灶，却没法让助手看到“我正在看哪里”。
+
+- 内窥镜面板用**注视点四角括号**框出当前注视位置，任何戴着这台头显的人都能看到“我在看的那根分支”。
+- 开启教学同步后该框变绿并标注 `GAZE ▸ 教学端 3 端`，日志记录“已同步至教学端 · 3 个接入点（来源：触发它的口令）”。“同步教学端”本身就是一条语音意图，整套带教交接不需要任何手柄。
+
+> 通过空间面板的视角同步，不仅辅助主刀医生，更为医学教学和远程会诊提供了第一人称视角的“沉浸式带教”。
+
+---
+
+## 7. 评分权重对齐
 
 | 维度 | 权重 | 本项目落点 |
 | --- | --- | --- |
@@ -154,7 +213,7 @@ alarm=NONE      t=68s+  hr=79  sbp=116 spo2=99  bleed=false
 
 ---
 
-## 7. 后续扩展路线
+## 8. 后续扩展路线
 
 1. **真实影像**：`ImagingPanel` 的位图烘焙函数替换为 DICOM 解码（dcm4che 轻量裁剪版），切层轴取自 Series 的 ImageOrientationPatient。
 2. **真实仪器**：实现 `VitalSignSource` / `ImagingSource` / `EndoscopeSource` 适配（WebSocket / HL7 v2 / DICOM 网关 / 串口），注册进 `InstrumentRegistry` 即可，面板代码零改动。
@@ -164,7 +223,7 @@ alarm=NONE      t=68s+  hr=79  sbp=116 spo2=99  bleed=false
 
 ---
 
-## 8. 截图
+## 9. 截图
 
 均为 PICO Emulator 实拍（`adb exec-out screencap`）。
 
@@ -178,4 +237,3 @@ alarm=NONE      t=68s+  hr=79  sbp=116 spo2=99  bleed=false
 ---
 
 *为 PICO Space Program 2026 开发。纯 Kotlin + PICO Spatial SDK，不依赖 Unity 或任何第三方 3D 引擎。*
-

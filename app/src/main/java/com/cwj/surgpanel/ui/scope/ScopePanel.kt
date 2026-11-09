@@ -27,6 +27,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.cwj.surgpanel.core.LinkMode
 import com.cwj.surgpanel.core.SurgicalSession
+import com.cwj.surgpanel.core.VoiceCommandRouter
 import com.cwj.surgpanel.ui.common.ChipButton
 import com.cwj.surgpanel.ui.common.PanelFrame
 import com.cwj.surgpanel.ui.common.SectionLabel
@@ -138,11 +139,28 @@ fun ScopePanel() {
 
                     // 渗血点（随心动周期搏动）
                     val bleedPulse = 0.6f + 0.4f * sin(t * 3f)
+                    val exudate = SurgicalSession.scopeExudate
                     drawCircle(
                         color = Palette.Red.copy(alpha = 0.30f * bleedPulse),
                         radius = r * 0.10f * bleedPulse,
                         center = Offset(center.x + r * 0.32f, center.y + r * 0.22f)
                     )
+                    // 渗出识别命中：置信度过阈值时叠加一圈高亮扩散环（模拟图像识别标注）
+                    if (exudate >= 0.62f) {
+                        val ring = 0.7f + 0.3f * sin(t * 4.2f)
+                        drawCircle(
+                            color = Palette.Red.copy(alpha = 0.55f * ring),
+                            radius = r * 0.16f,
+                            center = Offset(center.x + r * 0.32f, center.y + r * 0.22f),
+                            style = Stroke(width = r * 0.014f)
+                        )
+                        drawCircle(
+                            color = Palette.Red.copy(alpha = 0.22f * ring),
+                            radius = r * 0.24f,
+                            center = Offset(center.x + r * 0.32f, center.y + r * 0.22f),
+                            style = Stroke(width = r * 0.008f)
+                        )
+                    }
 
                     // 荧光模式的富集信号：病灶区叠加绿色辉光，与白光模式形成可辨差异
                     if (fluorescent) {
@@ -188,6 +206,40 @@ fun ScopePanel() {
                         center = Offset(center.x + r * 0.12f - bite, center.y)
                     )
                 }
+
+                // ---- 主刀注视点（Gaze Focus）：四角括号绿框标出"我正在看哪里" ----
+                val focus = Offset(center.x + r * 0.32f, center.y + r * 0.22f)
+                val boxR = r * 0.11f
+                val gazeColor = if (SurgicalSession.teachingSync) {
+                    Palette.Mint
+                } else {
+                    Palette.Mint.copy(alpha = 0.72f)
+                }
+                val corner = boxR * 0.62f
+                fun bracket(sx: Float, sy: Float) {
+                    drawLine(
+                        color = gazeColor,
+                        start = Offset(focus.x + sx * boxR, focus.y + sy * boxR),
+                        end = Offset(focus.x + sx * boxR - sx * corner, focus.y + sy * boxR),
+                        strokeWidth = 2f
+                    )
+                    drawLine(
+                        color = gazeColor,
+                        start = Offset(focus.x + sx * boxR, focus.y + sy * boxR),
+                        end = Offset(focus.x + sx * boxR, focus.y + sy * boxR - sy * corner),
+                        strokeWidth = 2f
+                    )
+                }
+                bracket(-1f, -1f)
+                bracket(1f, -1f)
+                bracket(-1f, 1f)
+                bracket(1f, 1f)
+                drawCircle(
+                    color = gazeColor,
+                    radius = boxR * 0.16f,
+                    center = focus,
+                    style = Stroke(width = 1.2f)
+                )
 
                 // 视野边缘
                 drawCircle(
@@ -240,6 +292,22 @@ fun ScopePanel() {
                     drawText(if (fluorescent) "近红外 800nm  ·  增益 42%" else "白光  ·  光斑 42%", labelX, botY, paint)
                 }
 
+                // 注视点标注：教学同步开启时改写成"已推送教学端"
+                paint.color = android.graphics.Color.argb(230, 109, 240, 198)
+                val gazeTx = (focus.x - boxR).coerceIn(6f, (size.width - 132f).coerceAtLeast(6f))
+                val gazeTy = (focus.y - boxR - 6f).coerceIn(12f, (size.height - 4f).coerceAtLeast(12f))
+                drawContext.canvas.nativeCanvas.drawText(
+                    if (SurgicalSession.teachingSync) {
+                        "GAZE ▸ 教学端 ${SurgicalSession.teachingPeers} 端"
+                    } else {
+                        "GAZE FOCUS"
+                    },
+                    gazeTx,
+                    gazeTy,
+                    paint
+                )
+                paint.color = android.graphics.Color.argb(200, 233, 241, 251)
+
                 if (SurgicalSession.recording) {
                     paint.color = android.graphics.Color.argb(230, 255, 84, 104)
                     val recX = (center.x + r - 46.sp.toPx())
@@ -275,7 +343,21 @@ fun ScopePanel() {
             ChipButton("录制", SurgicalSession.recording, Palette.Red) {
                 SurgicalSession.recording = !SurgicalSession.recording
             }
+            ChipButton("同步教学端", SurgicalSession.teachingSync, Palette.Mint) {
+                if (SurgicalSession.teachingSync) {
+                    SurgicalSession.teachingSync = false
+                    SurgicalSession.log("教学同步：已断开")
+                } else {
+                    VoiceCommandRouter.syncTeaching("面板")
+                }
+            }
             Spacer(Modifier.weight(1f))
+            StatusDot(
+                active = SurgicalSession.scopeExudate >= 0.62f,
+                color = Palette.Red,
+                label = "渗出 %.2f".format(SurgicalSession.scopeExudate)
+            )
+            Spacer(Modifier.width(10.dp))
             Text(
                 text = if (SurgicalSession.linkMode == LinkMode.OFF) "独立视图" else "联动 · 与影像 ROI 同步",
                 color = Palette.TextDim,

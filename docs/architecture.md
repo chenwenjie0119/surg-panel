@@ -126,6 +126,43 @@ There are two entry points:
 
 The console exposes mode switching, window visibility, link policy, shared imaging parameters, event injection, timeline reset, phase display, patient identity, instrument status and the live event stream (capped at 20 entries).
 
-## 12. Build and verification
+## 12. Gaze dwell and pinch confirm
+
+`platform/GazePinchController.kt` binds the two PICO Spatial input streams to the five panels:
+
+| Stream | SDK surface | Use |
+| --- | --- | --- |
+| Eye | `EyeTrackingProvider` pose | cast the eye forward vector, intersect the five window planes, keep the nearest positive hit |
+| HMD | `HMDTrackingProvider` pose | fallback ray origin and direction when eye data is not ready |
+| Hand | `HandTrackingProvider` right / left pinch | read `isReady` plus pinch strength, arm on crossing `PINCH_THRESHOLD` (0.82) |
+
+Dwell accumulates while the same panel stays under the ray and resets the moment the hit changes. `HOT_AT` (0.34 of `DWELL_MS` = 750 ms) turns the panel into `hotPanelId`, which is the highlight state consumed by `PanelFrame`. A pinch above threshold while a panel is hot calls the handler registered with `setConfirmHandler(panelId, ...)`, increments `confirmCount` and then stays locked for `CONFIRM_COOLDOWN_MS` (700 ms) so one physical pinch cannot fire two confirmations.
+
+Eye access is a runtime permission (`com.picovr.permission.EYE_TRACKING`). `requestEyePermission` returns whether a system dialog was actually raised, `bindHostContext` supplies the activity context from the first composed panel, and the provider is restarted after the grant arrives so a cold launch with no permission still ends up streaming. When the eye provider reports a non-usable support state the controller falls back to the HMD ray and says so in `supportNote`; nothing in the panel logic assumes a working eye tracker.
+
+## 13. Voice-issued alarm
+
+`platform/VoiceInput.kt` wraps the system `SpeechRecognizer` (no cloud SDK, no vendor key) and is driven by the microphone button in the console. Recognised text goes to `VoiceCommandRouter.handle`, which normalises it (punctuation, spaces and filler removed) and matches `COMMAND_BLEED` ("立刻查看出血点") plus a small set of paraphrases. On a hit the router sets `alarm = CRITICAL`, marks `manualBleed = true`, pushes the focus window forward and records the event with source `voice`, so the red frame and the localization chain come from the same state as an instrument-driven alarm rather than a separate path.
+
+Recognition failures are explicit: no service, permission denied and network or engine errors each produce their own event line, and a miss never silently changes alarm state.
+
+## 14. Spatial radar and coordinate readout
+
+`core/WindowPoseModel.kt` holds the designed world pose of all five windows (metres, right-handed, origin at the console centre, +X to the operator's right, +Y up, +Z towards the operator). `ui/common/MiniRadar.kt` draws that model as a top-down 2D radar: a 2.9 m span circle, a marker per window, and a two-letter code per marker. The gaze-hit and dwell-hot panels are lit in cyan.
+
+The same file exposes `CoordStack`, which prints one live line per window in the form `CODE x.xx / y.yy / z.zz`. It appears under the radar in the console and the compact radar itself sits in the lower-left of the focus window, so the operator can read absolute panel positions without leaving the view. Both components only read state; they write nothing.
+
+## 15. Determinism contract under load
+
+`core/PerfGovernor.kt` watches battery state and slow-frame averages and exposes three visual levels (`visualHz` 60 / 30 / 20, `waveStride` 2 / 3.4 / 5). The contract is deliberately narrow:
+
+1. `Level` carries nothing but redraw rate and waveform sampling stride. It has no access to alarms, phases or timers.
+2. `SessionClock` never references `PerfGovernor`. Its 100 ms daemon tick and the alarm hysteresis run at full rate in every level, so the millisecond-scale alarm latency is identical at 60 Hz and at 20 Hz.
+3. `AiController`, `SurgicalSession` and `SignalEngine` do not reference `PerfGovernor` either; degradation cannot reach the data path.
+4. The latest numeric text and the red alarm frame are plain state reads, so they repaint on every change regardless of level. Only the canvas waveform resamples.
+5. Values that are drawn as curves pass through `rememberSmoothFloat`, which interpolates towards the target with a frame-rate independent step, so a drop from 60 Hz to 20 Hz stays smooth instead of stepping.
+6. Nothing suspends threads. There is no background scheduler, no wake lock juggling and no thread pool inside the governor; the alarm thread is never paused, throttled or parked.
+
+## 16. Build and verification
 
 `./gradlew :app:compileDebugKotlin --rerun-tasks` compiles the module from scratch; the current tree builds with zero warnings and zero errors. `:app:assembleDebug` produces `app-debug.apk` (arm64-v8a) for the emulator and the device.

@@ -72,6 +72,22 @@ object SignalEngine {
             .coerceIn(0f, 1f)
     }
 
+    /**
+     * 内窥镜画面的渗出识别置信度，返回 0..1。
+     *
+     * 纯函数：以术野状态与时间正弦叠加模拟分割置信度的起伏，无随机源、无状态，
+     * 因此同一时刻多次调用结果恒等，便于在任何面板上复算与回放。
+     */
+    fun exudateScore(t: Float, bleeding: Boolean): Float {
+        val pulse = 0.5f + 0.5f * sin(t * 1.7f)
+        val wobble = 0.5f + 0.5f * sin(t * 0.63f + 1.1f)
+        return if (bleeding) {
+            (0.74f + 0.18f * pulse - 0.05f * wobble).coerceIn(0f, 1f)
+        } else {
+            (0.09f + 0.07f * wobble).coerceIn(0f, 1f)
+        }
+    }
+
     private fun gauss(x: Float, y: Float, mx: Float, my: Float, sx: Float, sy: Float): Float {
         val dx = (x - mx) / sx
         val dy = (y - my) / sy

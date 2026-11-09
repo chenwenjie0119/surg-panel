@@ -44,6 +44,7 @@ pico-cli capture screenshot --out shots/live.png
 | `vitals-panel` | Heart rate, blood pressure, SpO2, EtCO2, three-lead waveforms | Planar | 780x440 | **Above** the console |
 | `scope-panel` | Circular endoscopic field with instrument, fold and bleeding rendering | Planar | 720x640 | To the **left** of the console |
 | `focus-panel` | Incident focus: virtual magnification, cut-away cross-section, findings, countermeasures | Planar | 760x780 | Left of the console, raised to the front when an anomaly fires |
+| `record-panel` | Touch-free record review: history entries, imaging and allergy summary, streamed as text | Planar | 560x400 | Closed by default; right of the imaging window once summoned |
 
 - Placement uses the official `Placement.placement(anchor, Orientation.Right/Top/Left, offset)`. Anchors are resolved by container ID from `PlacementContext.containers`, with a `Placement.none()` fallback so a missing anchor never crashes startup.
 - Panels open and close through `LocalSpatialNavigator.current.openWindowContainer(id, tag)` / `closeWindowContainer(id, tag)`. A fixed `tag` puts the call in **reuse mode**: reopening brings the existing window to the front instead of stacking duplicates.
@@ -61,14 +62,21 @@ com.cwj.surgpanel
 │   ├── SignalEngine.kt        Pure signal generation: ECG/ABP/pulse waveforms, tissue density field, surgical field texture
 │   ├── AppMode.kt             Operating-mode switch (product / demo) plus display badge
 │   ├── AiModels.kt            Incident case, focus stages, findings, actions, request/response contracts
-│   └── AiController.kt        Five-stage chain: localise -> magnify -> cut away -> analyse -> countermeasures
+│   ├── AiController.kt        Five-stage chain: localise -> magnify -> cut away -> analyse -> countermeasures
+│   ├── AiNarrator.kt          Streaming typewriter for narrative blocks: token queue, one job per block, cancellable
+│   ├── CaseRecord.kt          Prior-history entries served to the touch-free record panel
+│   ├── VoiceCommandRouter.kt  Voice grammar: phrase normalisation, bleeding-query match, alarm intent dispatch
+│   ├── WindowPoseModel.kt     Designed world pose of the five windows (metres, origin at the console centre)
+│   └── PerfGovernor.kt        Visual-only degradation: redraw rate and waveform sampling stride, nothing else
 ├── data/
 │   ├── InstrumentPort.kt      Device ports (vitals / imaging / endoscope) and the registry product mode attaches to
 │   └── AiAdvisor.kt           AI API client: remote HTTP JSON inference, local rule engine as fallback
 ├── platform/
 │   ├── LaunchActivity.kt      Host activity
-│   ├── SpatialApplication.kt  Boots the spatial tree and starts the surgery clock
-│   └── SessionClock.kt        100 ms data bus: vitals drift, external device frames, bleeding events, alarm grading, phase progression
+│   ├── SpatialApplication.kt  Boots the spatial tree, starts the surgery clock, attaches gaze and pinch
+│   ├── SessionClock.kt        100 ms data bus: vitals drift, external device frames, bleeding events, alarm grading, phase progression
+│   ├── GazePinchController.kt Eye ray, HMD ray fallback, dwell highlight and pinch confirm over the five windows
+│   └── VoiceInput.kt          System SpeechRecognizer wrapper behind the console microphone button
 └── ui/
     ├── theme/Palette.kt       Dark operating-room palette (low luminance, low saturation, layered alarm colors)
     ├── common/PanelFrame.kt   Panel chrome: status lamp, pill buttons, primary button, key-value rows, frame clock
@@ -76,8 +84,13 @@ com.cwj.surgpanel
     ├── imaging/ImagingPanel.kt
     ├── vitals/VitalsPanel.kt
     ├── scope/ScopePanel.kt
-    └── focus/FocusPanel.kt    Incident focus: magnification, cut-away cross-section, findings, countermeasures
+    ├── focus/FocusPanel.kt    Incident focus: magnification, cut-away cross-section, findings, countermeasures
+    └── record/RecordPanel.kt  Touch-free record review: gaze / voice summon, streamed history, NO-TOUCH badge
 ```
+
+**Gaze, pinch and voice.** `GazePinchController` casts the eye forward vector against the five window planes, keeps the nearest hit and lights a panel once the same hit holds for a third of its 750 ms dwell window. A hand pinch above 0.82 on a lit panel fires the confirm handler registered for that panel and then stays locked for 700 ms. When the eye provider is unavailable the HMD ray takes over, so the highlight still works on hardware without an eye tracker. The console microphone button feeds the system `SpeechRecognizer`; the phrase *立刻查看出血点* (and a small set of paraphrases) sets the alarm to critical, marks the bleeding flag and brings the focus window forward through the same state the instrument path uses.
+
+**Performance contract.** `PerfGovernor` may only throttle what is drawn: `visualHz` 60 / 30 / 20 and `waveStride` 2 / 3.4 / 5.They affect the canvas waveform alone. `SessionClock` keeps its 100 ms daemon tick and the alarm grading untouched in every level, numeric readouts and the red alarm frame repaint on every state change, curves are interpolated with a frame-rate independent step so a lower rate never looks like a jump, and no thread is ever suspended to save power. `docs/architecture.md` section 15 states the contract in full.
 
 **State and view are decoupled.** Every panel only reads `SurgicalSession`; every write is centralized in `SessionClock` (a background daemon thread). Closing, reopening or moving a window therefore never interrupts the data flow, and swapping in real device sources later means replacing `SessionClock` with a DICOM / patient monitor / endoscope SDK adapter without touching any panel.
 
@@ -141,7 +154,52 @@ The console's demo section exposes **trigger surgical bleeding** (toggle the ble
 
 ---
 
-## 6. Scoring alignment
+## 6. Operating-room pain points
+
+Four problems decide whether a spatial panel is usable in a live case rather than on a slide. Each one below is implemented in the code shipped here.
+
+### 6.1 Dirty vs clean - touch-free record review
+
+A scrubbed operator cannot scratch his own head, let alone touch a workstation; today the only channel is dictating to the circulating nurse and waiting.
+
+- Gaze at the **病历** chip in the console window row, or say *调出患者半年前的冠脉 CT*, and a compact `record-panel` (560x400) unfolds to the right of the imaging window. The panel carries a `NO-TOUCH` lamp in its header so the interaction model is legible to the whole room.
+- The entry list is titled *调阅条目 · 注视即切换*: fixating a row switches the case, no click involved. History streams in token by token through the same typewriter pipeline as the AI advice (`AiNarrator`: one cancellable job per block, 22 ms per token on a background dispatcher, deliberately never on the 100 ms data thread), so the text arrives at the pace of a spoken hand-over instead of a wall of text.
+- Say 关闭 and the window disappears. Gaze and voice are the only inputs; the touchscreen is never part of the loop.
+
+> Touch-free aseptic interaction driven purely by gaze and voice frees the surgeon from the dilemma of "I must scrub in before I can touch the device".
+
+### 6.2 Alarm fatigue - multi-parameter cross-verification
+
+An OR where every monitor beeps teaches the surgeon to hear nothing.
+
+- Every 100 ms tick `SessionClock` evaluates three independent signals: **HR > 120**, **SBP < 90** and an **endoscopic exudate score >= 0.62** (the score comes from the tissue model in `SignalEngine.exudateScore`). Only the three held together for 1.5 s escalate to `CRITICAL` - red flashing frame plus the rapid 165 ms alarm tone. The three legs are printed in the event log as `fusion=3[true,true,true]` so a reviewer can verify the gate.
+- A single leg drifting high raises **no alarm at all**: the console corner lights a small cyan dot and the vitals flow row reports `交叉验证 1/3` with the offending leg, so a heart rate of 121 on its own never interrupts the operator.
+- Hysteresis sits on top of the gate (enter at HR>112 / SBP<90 / SpO2<94, leave at HR<=106 and SBP>=96 and SpO2>=95), so an event produces three log lines and no edge flicker.
+
+> Multi-parameter cross-verified alarming effectively reduces operating-room alarm fatigue, so the operator's attention is interrupted only by genuinely critical events such as acute haemorrhage.
+
+### 6.3 Key timers and consumable tracking
+
+Clamp time, swab counts and blood loss are the logistics a spatial console can genuinely take over.
+
+- Say **开始阻断** and a 15:00 clamp limit is promoted to its own full-width line (26 sp monospace) above the waveforms, because a process timer has to be readable at arm's length. It turns **amber below 3:00** and **red below 1:00**; at 15:00 the clamp auto-releases and the final duration goes to the log. **结束阻断** archives the duration early.
+- The flow row carries **估算出血 EBL** (0.55 ml per tick while bleeding, 0.015 ml otherwise) and **纱布 台上/清点**: every bleeding edge increments the on-field swab count, so the number that must reconcile before closing is always on screen.
+- All three read from the shared session state, so they keep counting while windows are moved, closed or reopened.
+
+> Beyond physiological metrics, key OR logistics - vascular clamp countdown and blood-loss estimation - are brought into the spatial layer, making this a true all-dimensional surgical command cockpit.
+
+### 6.4 Sharing the operator's viewpoint
+
+The operator sees the lesion but cannot point at it for the assistant.
+
+- The endoscopic panel brackets the current fixation point with a **Gaze Focus** frame, so "the branch I am looking at" is visible to anyone wearing the headset.
+- With teaching sync on, that frame turns green, is labelled `GAZE ▸ 教学端 3 端`, and the log records 已同步至教学端 · 3 个接入点 (source: the command that triggered it). 同步教学端 is itself a voice intent, so the whole teaching hand-over needs no controller.
+
+> Viewpoint synchronisation across spatial panels does not only assist the operating surgeon: it gives medical teaching and remote consultation a first-person "immersive preceptorship".
+
+---
+
+## 7. Scoring alignment
 
 | Dimension | Weight | How this project covers it |
 | --- | --- | --- |
@@ -154,7 +212,7 @@ The console's demo section exposes **trigger surgical bleeding** (toggle the ble
 
 ---
 
-## 7. Extension roadmap
+## 8. Extension roadmap
 
 1. **Real imaging.** Replace the bitmap baking function in `ImagingPanel` with a trimmed dcm4che DICOM decoder; slice axis comes from the series `ImageOrientationPatient`.
 2. **Real instruments.** Ship `VitalSignSource` / `ImagingSource` / `EndoscopeSource` adapters (WebSocket, HL7 v2, DICOM gateway, serial) and register them in `InstrumentRegistry`; no panel code changes.
@@ -164,7 +222,7 @@ The console's demo section exposes **trigger surgical bleeding** (toggle the ble
 
 ---
 
-## 8. Screenshots
+## 9. Screenshots
 
 All shots are captured from the PICO Emulator with `adb exec-out screencap`.
 
@@ -180,4 +238,3 @@ All shots are captured from the PICO Emulator with `adb exec-out screencap`.
 *Built for the PICO Space Program 2026. Pure Kotlin, PICO Spatial SDK, no Unity, no third-party 3D engine.*
 
 See [docs/architecture.md](docs/architecture.md) for detailed implementation states.
-

@@ -2,6 +2,23 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:tools="http://schemas.android.com/tools">
 
+    <!-- 术中语音指令：仅用于采集“立刻查看出血点”一类口令 -->
+    <uses-permission android:name="android.permission.RECORD_AUDIO" />
+
+    <!-- 远程推理服务调用 -->
+    <uses-permission android:name="android.permission.INTERNET" />
+
+    <!-- 眼动追踪：聚焦窗的视线驻留高亮依赖该能力。该权限为运行时权限，
+         仅在此声明不足以生效，需在代码中动态请求（见 GazePinchController） -->
+    <uses-permission android:name="com.picovr.permission.EYE_TRACKING" />
+
+    <!-- Android 11+ 可见性：系统语音识别服务需要显式声明才能被 discover -->
+    <queries>
+        <intent>
+            <action android:name="android.speech.RecognitionService" />
+        </intent>
+    </queries>
+
         <application
         android:name=".platform.SpatialApplication"
         android:dataExtractionRules="@xml/data_extraction_rules"

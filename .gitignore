@@ -38,3 +38,9 @@ google-services.json
 
 # UI dumps
 shots/ui.xml
+
+# Local emulator captures (keep the README jpg set)
+shots/*.png
+
+# Local build logs
+buildlog/

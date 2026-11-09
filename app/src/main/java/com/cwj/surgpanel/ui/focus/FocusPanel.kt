@@ -17,6 +17,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -28,6 +29,7 @@ import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.cwj.surgpanel.FOCUS_ID
 import com.cwj.surgpanel.core.AiAction
 import com.cwj.surgpanel.core.AiController
 import com.cwj.surgpanel.core.AiFinding
@@ -37,12 +39,16 @@ import com.cwj.surgpanel.core.FocusStage
 import com.cwj.surgpanel.core.IncidentCase
 import com.cwj.surgpanel.core.Severity
 import com.cwj.surgpanel.core.SurgicalSession
+import com.cwj.surgpanel.platform.GazePinchController
+import com.cwj.surgpanel.platform.SurgicalAudio
 import com.cwj.surgpanel.ui.common.ChipButton
 import com.cwj.surgpanel.ui.common.KeyValueRow
+import com.cwj.surgpanel.ui.common.MiniRadar
+import com.cwj.surgpanel.ui.common.NarrationBlock
 import com.cwj.surgpanel.ui.common.PanelFrame
 import com.cwj.surgpanel.ui.common.SectionLabel
 import com.cwj.surgpanel.ui.common.StatusDot
-import com.cwj.surgpanel.ui.common.rememberAnimatedSeconds
+import com.cwj.surgpanel.ui.common.rememberVisualSeconds
 import com.cwj.surgpanel.ui.theme.Palette
 import com.pico.spatial.ui.design.Text
 import kotlin.math.min
@@ -57,21 +63,31 @@ import kotlin.math.sin
  */
 @Composable
 fun FocusPanel() {
-    val t = rememberAnimatedSeconds()
+    val t = rememberVisualSeconds()
     val stage = SurgicalSession.focusStage
     val anim = SurgicalSession.focusAnim
     val incident = SurgicalSession.incident
     val running = SurgicalSession.aiRunning
+    val gazeHot = GazePinchController.hotPanelId == FOCUS_ID
     val accent = when {
         incident == null -> Palette.Violet
         SurgicalSession.alarm == AlarmLevel.CRITICAL -> Palette.Red
         else -> Palette.Amber
     }
 
+    DisposableEffect(Unit) {
+        GazePinchController.setConfirmHandler(FOCUS_ID) {
+            AiController.confirmAdvice("捏合确认")
+            SurgicalAudio.confirm()
+        }
+        onDispose { GazePinchController.setConfirmHandler(FOCUS_ID, null) }
+    }
+
     PanelFrame(
         title = "智能异常处置 · 病灶聚焦",
         tag = "FOCUS",
         accent = accent,
+        gazeHot = gazeHot,
         trailing = {
             StatusDot(active = running, color = accent, label = if (running) "ANALYZING" else stage.label)
             Spacer(Modifier.width(10.dp))
@@ -84,7 +100,9 @@ fun FocusPanel() {
         }
     ) {
         StageBar(stage, anim)
-        Spacer(Modifier.height(10.dp))
+        Spacer(Modifier.height(8.dp))
+        GazeStrip(gazeHot)
+        Spacer(Modifier.height(8.dp))
         Row(Modifier.fillMaxWidth().weight(1f)) {
             FocusViewport(stage, anim, t, incident, Modifier.weight(1.12f).fillMaxHeight())
             Spacer(Modifier.width(14.dp))
@@ -100,18 +118,89 @@ fun FocusPanel() {
                 AiController.triggerDemo()
             }
             Spacer(Modifier.width(10.dp))
+            ChipButton(
+                label = if (SurgicalSession.adviceConfirmed) "处置已确认" else "捏合确认处置",
+                active = SurgicalSession.adviceConfirmed,
+                accent = Palette.Mint
+            ) {
+                AiController.confirmAdvice("点击确认")
+                SurgicalAudio.confirm()
+            }
+            Spacer(Modifier.width(10.dp))
             Text(
-                text = if (SurgicalSession.appMode == AppMode.DEMO) {
-                    "单次演示约 16 s 后自动回稳，可重复触发"
-                } else {
-                    "产品模式下监护数据越限将自动触发本链路"
+                text = when {
+                    SurgicalSession.adviceConfirmed -> "处置序列已下发，事件保持展开直至收起"
+                    SurgicalSession.appMode == AppMode.DEMO -> "单次演示约 16 s 后自动回稳，可重复触发"
+                    else -> "产品模式下监护数据越限将自动触发本链路"
                 },
                 color = Palette.TextDim,
                 fontSize = 11.sp
             )
             Spacer(Modifier.weight(1f))
+            // 视线左下角常驻的极简全局雷达：异常态下医生主要看本窗，雷达放这里随时可见。
+            MiniRadar(Modifier.width(92.dp), diameter = 78.dp)
+            Spacer(Modifier.width(10.dp))
             ChipButton("收起事件", false) { AiController.onResolved() }
         }
+    }
+}
+
+/**
+ * 眼动交互条：呈现视线驻留进度与捏合状态。
+ *
+ * 驻留进度由 [GazePinchController] 在独立协程里推进，本组件只做只读渲染，
+ * 不阻断也不拖慢任何主链路；即使整条降级也不影响处置流程本身。
+ */
+@Composable
+private fun GazeStrip(hot: Boolean) {
+    val dwell = GazePinchController.dwell
+    val pinch = GazePinchController.pinchArmed
+    val ready = GazePinchController.trackingReady
+    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+        StatusDot(active = hot, color = Palette.Cyan, label = if (hot) "EYE LOCK" else "EYE")
+        Spacer(Modifier.width(8.dp))
+        Box(
+            Modifier
+                .width(64.dp)
+                .height(3.dp)
+                .clip(RoundedCornerShape(2.dp))
+                .background(Palette.Stroke)
+        ) {
+            Box(
+                Modifier
+                    .fillMaxWidth(dwell.coerceIn(0f, 1f))
+                    .height(3.dp)
+                    .background(Palette.Cyan)
+            )
+        }
+        Spacer(Modifier.width(8.dp))
+        Text(
+            text = when {
+                !ready -> "眼动通道初始化中"
+                hot -> "视线驻留 ${(dwell * 100).toInt()}%"
+                else -> "注视本窗 0.8 s 锁定"
+            },
+            color = if (hot) Palette.Cyan else Palette.TextDim,
+            fontSize = 10.sp,
+            fontFamily = FontFamily.Monospace
+        )
+        Spacer(Modifier.width(12.dp))
+        StatusDot(
+            active = pinch,
+            color = Palette.Mint,
+            label = if (pinch) "PINCH ARMED" else "PINCH"
+        )
+        Spacer(Modifier.weight(1f))
+        Text(
+            text = if (SurgicalSession.adviceConfirmed) {
+                "处置序列已确认"
+            } else {
+                "锁定后捏合手指确认处置"
+            },
+            color = if (SurgicalSession.adviceConfirmed) Palette.Mint else Palette.TextDim,
+            fontSize = 10.sp,
+            fontFamily = FontFamily.Monospace
+        )
     }
 }
 
@@ -220,6 +309,8 @@ private fun AnalysisColumn(incident: IncidentCase?, modifier: Modifier) {
     ) {
         SectionLabel("智能分析", Palette.Amber)
         Spacer(Modifier.height(6.dp))
+        NarrationBlock(accent = Palette.Amber, visibleLines = 2, fixedHeight = 60)
+        Spacer(Modifier.height(8.dp))
         if (incident == null) {
             Text(
                 text = "暂无异常事件",

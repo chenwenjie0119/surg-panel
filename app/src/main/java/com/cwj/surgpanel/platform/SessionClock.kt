@@ -25,10 +25,19 @@ object SessionClock {
     private const val BLEED_END = 68
     private const val CYCLE = 140
 
+    /** 联合危急的确认拍数：100 ms × 15 = 1.5 s。 */
+    private const val FUSION_CONFIRM_TICKS = 15
+
     @Volatile
     private var started = false
 
     private var lastAlarm = AlarmLevel.NONE
+
+    /** 三联条件连续成立的拍数，用于 1.5 s 确认消抖。 */
+    private var fusionHold = 0
+
+    /** 上一次的渗血状态，用于边沿检测（一块纱布只记一次）。 */
+    private var lastBleeding = false
 
     fun start() {
         if (started) return
@@ -86,43 +95,80 @@ object SessionClock {
                 .roundToInt().coerceIn(20, 60)
         }
 
-        // 告警判级：进入用高阈值、退出用低阈值（回滞），避免数值在阈值附近反复穿越导致状态灯抖动
+        // ---- 多模态联合判定：三条独立证据交叉验证，单项越限只给青色微提示 ----
         val hr = SurgicalSession.heartRate
         val sbp = SurgicalSession.systolic
         val spo2 = SurgicalSession.spo2
-        val criticalIn = hr > 112 || sbp < 90 || spo2 < 94
-        val criticalOut = hr <= 106 && sbp >= 96 && spo2 >= 95
-        val watchIn = hr > 96 || sbp < 100 || spo2 < 96
-        val watchOut = hr <= 90 && sbp >= 104 && spo2 >= 97
+        val exudate = SignalEngine.exudateScore(t, bleeding)
+        SurgicalSession.scopeExudate = exudate
 
-        val level = when (lastAlarm) {
-            AlarmLevel.CRITICAL -> when {
-                criticalOut -> if (watchIn) AlarmLevel.WATCH else AlarmLevel.NONE
-                else -> AlarmLevel.CRITICAL
-            }
-            AlarmLevel.WATCH -> when {
-                criticalIn -> AlarmLevel.CRITICAL
-                watchOut -> AlarmLevel.NONE
-                else -> AlarmLevel.WATCH
-            }
-            AlarmLevel.NONE -> when {
-                criticalIn -> AlarmLevel.CRITICAL
-                watchIn -> AlarmLevel.WATCH
-                else -> AlarmLevel.NONE
-            }
+        val hrHit = hr > 120
+        val sbpHit = sbp < 90
+        val exudateHit = exudate >= 0.62f
+        val hits = (if (hrHit) 1 else 0) + (if (sbpHit) 1 else 0) + (if (exudateHit) 1 else 0)
+        SurgicalSession.fusionHits = hits
+        SurgicalSession.fusionDetail = buildString {
+            append(if (hrHit) "心率↑" else "心率·")
+            append(' ')
+            append(if (sbpHit) "血压↓" else "血压·")
+            append(' ')
+            append(if (exudateHit) "渗出+" else "渗出·")
+        }
+
+        // 三条件同时成立须连续保持 1.5 s 才升级为危急，单帧噪声不会拉起红色警报
+        fusionHold = if (hits == 3) fusionHold + 1 else 0
+        val fusionConfirm = hits == 3 && fusionHold >= FUSION_CONFIRM_TICKS
+
+        // 危急：联合三条同时成立，或血氧单项跌破安全线（低氧本身即足以致死，不进联合门槛）
+        val criticalIn = fusionConfirm || spo2 < 92
+        // 退出须三条证据全部回落（含渗出识别与本次渗血状态），避免刚解除就二次拉响
+        val criticalOut = hr <= 112 && sbp >= 95 && exudate < 0.45f && spo2 >= 94
+        val watchIn = hits == 2 || hr > 96 || sbp < 100 || spo2 < 96
+        val watchOut = hits <= 1 && hr <= 90 && sbp >= 104 && spo2 >= 97
+        // 微提示门槛：单项轻度越界即点亮青点，全程无声、不写事件流
+        val noticeIn = hits >= 1 || hr > 90 || sbp < 105 || spo2 < 97
+
+        val forced = android.os.SystemClock.elapsedRealtime() < SurgicalSession.forceCriticalUntilMs
+        val level = when {
+            forced -> AlarmLevel.CRITICAL
+            lastAlarm == AlarmLevel.CRITICAL ->
+                if (criticalOut) {
+                    when {
+                        watchIn -> AlarmLevel.WATCH
+                        noticeIn -> AlarmLevel.NOTICE
+                        else -> AlarmLevel.NONE
+                    }
+                } else {
+                    AlarmLevel.CRITICAL
+                }
+            criticalIn -> AlarmLevel.CRITICAL
+            lastAlarm == AlarmLevel.WATCH ->
+                if (watchOut) {
+                    if (noticeIn) AlarmLevel.NOTICE else AlarmLevel.NONE
+                } else {
+                    AlarmLevel.WATCH
+                }
+            watchIn -> AlarmLevel.WATCH
+            lastAlarm == AlarmLevel.NOTICE ->
+                if (!noticeIn) AlarmLevel.NONE else AlarmLevel.NOTICE
+            noticeIn -> AlarmLevel.NOTICE
+            else -> AlarmLevel.NONE
         }
 
         if (level != lastAlarm) {
             SurgicalSession.alarm = level
             android.util.Log.i(
                 "SurgeryClock",
-                "alarm=$level mode=${SurgicalSession.appMode.name} t=${t.toInt()}s hr=$hr sbp=$sbp spo2=$spo2 bleed=$bleeding instrument=${external != null}"
+                "alarm=$level fusion=$hits[$hrHit,$sbpHit,$exudateHit] mode=${SurgicalSession.appMode.name} " +
+                    "t=${t.toInt()}s hr=$hr sbp=$sbp spo2=$spo2 exudate=${"%.2f".format(exudate)} " +
+                    "bleed=$bleeding instrument=${external != null}"
             )
-            SurgicalSession.alarmText = when {
-                level == AlarmLevel.CRITICAL && bleeding -> "术野渗血：心率升、收缩压降"
-                level == AlarmLevel.CRITICAL -> "生命体征超阈，请确认术野"
-                level == AlarmLevel.WATCH -> "生命体征临界，持续观察"
-                else -> ""
+            SurgicalSession.alarmText = when (level) {
+                AlarmLevel.CRITICAL ->
+                    if (bleeding) "联合危急：心率↑ + 血压↓ + 渗出识别阳性" else "生命体征超阈，请确认术野"
+                AlarmLevel.WATCH -> "多参数临界（$hits/3），密切观察"
+                AlarmLevel.NOTICE -> "单项轻度越界，静默记录"
+                AlarmLevel.NONE -> ""
             }
             if (level == AlarmLevel.CRITICAL) {
                 SurgicalSession.log("告警：${SurgicalSession.alarmText}", critical = true)
@@ -130,7 +176,7 @@ object SessionClock {
                 if (SurgicalSession.appMode == AppMode.PRODUCT) {
                     AiController.onAlarmTriggered(level)
                 }
-            } else if (level == AlarmLevel.NONE && lastAlarm == AlarmLevel.CRITICAL) {
+            } else if (level == AlarmLevel.NONE && lastAlarm >= AlarmLevel.WATCH) {
                 SurgicalSession.log("体征回稳，告警解除")
                 AiController.onResolved(fromData = true)
             }
@@ -143,6 +189,33 @@ object SessionClock {
             if (level == AlarmLevel.CRITICAL && SurgicalSession.sliceIndex != 46) {
                 SurgicalSession.sliceIndex = 46
             }
+        }
+
+        // ---- 关键时限：血管阻断倒计时（语音「开始阻断」启动，满 15 min 自动叫停）----
+        if (SurgicalSession.blockadeRunning && tick % 10 == 0) {
+            val before = SurgicalSession.blockadeSec
+            SurgicalSession.blockadeSec = before + 1
+            if (before < SurgicalSession.BLOCKADE_LIMIT_SEC &&
+                SurgicalSession.blockadeSec >= SurgicalSession.BLOCKADE_LIMIT_SEC
+            ) {
+                SurgicalSession.blockadeRunning = false
+                SurgicalSession.log("阻断已达 15 min 上限，请立即松开阻断带", critical = true)
+            }
+        }
+
+        // ---- 耗材与出血量：渗血边沿记一块纱布，出血量按渗血速率累积 ----
+        if (bleeding != lastBleeding) {
+            lastBleeding = bleeding
+            if (bleeding) {
+                SurgicalSession.spongeOnField += 1
+                SurgicalSession.log("渗血浸透纱布，台上 +1 块，待同步清点")
+            }
+        }
+        SurgicalSession.eblAcc += if (bleeding) 0.55f else 0.015f
+        if (SurgicalSession.eblAcc >= 1f) {
+            val add = SurgicalSession.eblAcc.toInt()
+            SurgicalSession.eblAcc -= add
+            SurgicalSession.eblMl += add
         }
 
         val targetPhase = when {

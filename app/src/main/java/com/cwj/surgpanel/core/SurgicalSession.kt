@@ -3,6 +3,7 @@ package com.cwj.surgpanel.core
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
@@ -20,8 +21,13 @@ enum class Modality(val label: String, val unit: String) {
     MRI("MRI T2", "SI")
 }
 
-/** 告警等级。 */
-enum class AlarmLevel { NONE, WATCH, CRITICAL }
+/**
+ * 告警等级。
+ *
+ * [NOTICE] 为几乎不打扰的青色微提示：单项体征轻度越界时只点亮一个点，
+ * 不出声、不写事件流、不改变任何面板底色，用于对抗手术室“警报疲劳”。
+ */
+enum class AlarmLevel { NONE, NOTICE, WATCH, CRITICAL }
 
 /** 手术阶段。 */
 enum class ProceduralPhase(val label: String) {
@@ -54,6 +60,9 @@ object SurgicalSession {
     const val CASE_NO = "OR-2026-1107-03"
     const val PROCEDURE = "腹腔镜胆囊切除术"
 
+    /** 肝门阻断时限：15 min 为临床常用上限。 */
+    const val BLOCKADE_LIMIT_SEC = 900
+
     // ---- 手术时间轴 ----
     var elapsedSec by mutableIntStateOf(0)
     var running by mutableStateOf(true)
@@ -73,11 +82,19 @@ object SurgicalSession {
     var aiEngine by mutableStateOf("本地规则引擎")
     var aiLatencyMs by mutableIntStateOf(0)
 
+    /** 处置序列是否已被确认（捏合或点击），确认后聚焦窗转为已执行态。 */
+    var adviceConfirmed by mutableStateOf(false)
+
+    /** 最近一次语义来源，用于在聚焦窗展示“自动触发 / 语音指令 / 捏合确认”。 */
+    var triggerSource by mutableStateOf("")
+
     fun clearIncident() {
         incident = null
         focusStage = FocusStage.IDLE
         focusAnim = 0f
         aiRunning = false
+        adviceConfirmed = false
+        triggerSource = ""
     }
 
     // ---- 联动与布局 ----
@@ -102,10 +119,54 @@ object SurgicalSession {
     var alarm by mutableStateOf(AlarmLevel.NONE)
     var alarmText by mutableStateOf("")
 
+    /**
+     * 人为强制的危急保持截止时刻（uptime 毫秒）。
+     *
+     * 语音或面板手动升级告警后，若体征本身尚未越限，判定逻辑不得在下一拍就把等级拉回，
+     * 因此给出一个短的保持窗口，窗口内由判定逻辑直接沿用 CRITICAL。
+     */
+    var forceCriticalUntilMs by mutableLongStateOf(0L)
+
     // ---- 内窥镜窗 ----
     var scopeZoom by mutableFloatStateOf(1f)
     var autoFluorescence by mutableStateOf(false)
     var recording by mutableStateOf(true)
+
+    // ---- 多模态联合判定（警报疲劳治理）----
+    /** 内窥镜画面渗出识别置信度 0..1，画面侧推断结果。 */
+    var scopeExudate by mutableFloatStateOf(0f)
+    /** 联合判定已成立的条件数（0..3），用于面板展示“交叉验证进度”。 */
+    var fusionHits by mutableIntStateOf(0)
+    /** 联合判定条件明细，如“心率↑ 血压↓ 渗出+”。 */
+    var fusionDetail by mutableStateOf("—")
+
+    // ---- 关键时限与耗材 ----
+    /** 肝门阻断是否进行中。 */
+    var blockadeRunning by mutableStateOf(false)
+    /** 已阻断秒数。 */
+    var blockadeSec by mutableIntStateOf(0)
+    /** 台上纱布数量。 */
+    var spongeOnField by mutableIntStateOf(6)
+    /** 清点确认数量，与台上数量一致方可关腹。 */
+    var spongeCounted by mutableIntStateOf(6)
+    /** 估算出血量（mL）。 */
+    var eblMl by mutableIntStateOf(0)
+    /** 出血量累加缓冲，避免每拍取整丢精度。 */
+    var eblAcc by mutableFloatStateOf(0f)
+
+    // ---- 主刀视角同步 ----
+    /** 是否处于教学 / 会诊同步状态。 */
+    var teachingSync by mutableStateOf(false)
+    /** 已接入的接收端数量。 */
+    var teachingPeers by mutableIntStateOf(0)
+
+    // ---- 无接触病历调阅 ----
+    /** 病历面板是否处于展开态（由注视或语音唤出）。 */
+    var recordOpen by mutableStateOf(false)
+    /** 当前调阅条目 id。 */
+    var recordEntryId by mutableStateOf("")
+    /** 唤出序号，面板侧据此把窗口前置。 */
+    var recordSeq by mutableIntStateOf(0)
 
     val events = mutableStateListOf(
         CaseEvent(0, "术前核查通过，气腹建立 12 mmHg"),
@@ -118,6 +179,21 @@ object SurgicalSession {
     }
 
     fun clock(): String = "%02d:%02d".format(elapsedSec / 60, elapsedSec % 60)
+
+    /** 阻断剩余秒数（未开始阻断时按满额显示）。 */
+    fun blockadeRemain(): Int = (BLOCKADE_LIMIT_SEC - blockadeSec).coerceAtLeast(0)
+
+    /** 阻断倒计时文本 MM:SS。 */
+    fun blockadeLabel(): String {
+        val r = blockadeRemain()
+        return "%02d:%02d".format(r / 60, r % 60)
+    }
+
+    /** 台上纱布与清点数量是否一致，一致方可关腹。 */
+    fun countMatched(): Boolean = spongeOnField == spongeCounted
+
+    /** 出血量文本。 */
+    fun eblLabel(): String = "$eblMl mL"
 
     fun sliceLabel(): String = "${modality.label} · 第 ${sliceIndex + 1} / 96 层"
 
