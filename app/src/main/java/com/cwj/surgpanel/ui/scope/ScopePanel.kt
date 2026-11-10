@@ -32,7 +32,7 @@ import com.cwj.surgpanel.ui.common.ChipButton
 import com.cwj.surgpanel.ui.common.PanelFrame
 import com.cwj.surgpanel.ui.common.SectionLabel
 import com.cwj.surgpanel.ui.common.StatusDot
-import com.cwj.surgpanel.ui.common.rememberAnimatedSeconds
+import com.cwj.surgpanel.ui.common.rememberVisualClock
 import com.cwj.surgpanel.ui.theme.Palette
 import com.pico.spatial.ui.design.Text
 import kotlin.math.cos
@@ -45,7 +45,8 @@ import kotlin.math.sin
  */
 @Composable
 fun ScopePanel() {
-    val t = rememberAnimatedSeconds()
+    // 只持句柄不读值：除画布外的文本行不再随帧重组
+    val clock = rememberVisualClock()
     val zoom = SurgicalSession.scopeZoom
 
     PanelFrame(
@@ -55,7 +56,7 @@ fun ScopePanel() {
         trailing = {
             StatusDot(active = SurgicalSession.recording, color = Palette.Red, label = "REC")
             Spacer(Modifier.width(10.dp))
-            Text(text = "%.2fx".format(zoom), color = Palette.Violet, fontSize = 12.sp, fontFamily = FontFamily.Monospace)
+            Text(text = String.format(java.util.Locale.US, "%.2fx", zoom), color = Palette.Violet, fontSize = 12.sp, fontFamily = FontFamily.Monospace)
         }
     ) {
         Box(
@@ -65,6 +66,8 @@ fun ScopePanel() {
                 .background(Color(0xFF05070B))
         ) {
             Canvas(Modifier.fillMaxSize()) {
+                // 绘制阶段读取时钟：每帧只重绘，不重组
+                val t = clock.value
                 val fluorescent = SurgicalSession.autoFluorescence
                 // 缩放矩阵：视野半径随放大倍数变化，等价于内窥镜光学 zoom
                 val r = min(size.width, size.height) * 0.45f * zoom
@@ -137,8 +140,8 @@ fun ScopePanel() {
                         )
                     }
 
-                    // 渗血点（随心动周期搏动）
-                    val bleedPulse = 0.6f + 0.4f * sin(t * 3f)
+                    // 渗血点：形变与亮度收敛到 8%，读作“稳定出血点”而不是搏动闪烁
+                    val bleedPulse = 0.92f + 0.08f * sin(t * 2.09f)
                     val exudate = SurgicalSession.scopeExudate
                     drawCircle(
                         color = Palette.Red.copy(alpha = 0.30f * bleedPulse),
@@ -147,7 +150,8 @@ fun ScopePanel() {
                     )
                     // 渗出识别命中：置信度过阈值时叠加一圈高亮扩散环（模拟图像识别标注）
                     if (exudate >= 0.62f) {
-                        val ring = 0.7f + 0.3f * sin(t * 4.2f)
+                        // 识别命中环：保留低频微光表达“已标注”，不做高频呼吸
+                        val ring = 0.82f + 0.08f * sin(t * 1.75f)
                         drawCircle(
                             color = Palette.Red.copy(alpha = 0.55f * ring),
                             radius = r * 0.16f,
@@ -164,7 +168,8 @@ fun ScopePanel() {
 
                     // 荧光模式的富集信号：病灶区叠加绿色辉光，与白光模式形成可辨差异
                     if (fluorescent) {
-                        val glow = 0.55f + 0.35f * sin(t * 3f)
+                        // 荧光富集辉光：周期约 6s 的极缓亮度游走，静态观感为主
+                        val glow = 0.62f + 0.10f * sin(t * 1.05f)
                         val spot = Offset(center.x + r * 0.32f, center.y + r * 0.22f)
                         drawCircle(
                             brush = Brush.radialGradient(
@@ -288,7 +293,7 @@ fun ScopePanel() {
                 val topY = (center.y - r - 6f).coerceIn(12f, (size.height - 4f).coerceAtLeast(12f))
                 val botY = (center.y + r + 16f).coerceIn(12f, (size.height - 4f).coerceAtLeast(12f))
                 drawContext.canvas.nativeCanvas.apply {
-                    drawText("30° 镜  ·  %.2fx".format(zoom), labelX, topY, paint)
+                    drawText(String.format(java.util.Locale.US, "30° 镜  ·  %.2fx", zoom), labelX, topY, paint)
                     drawText(if (fluorescent) "近红外 800nm  ·  增益 42%" else "白光  ·  光斑 42%", labelX, botY, paint)
                 }
 
@@ -355,7 +360,7 @@ fun ScopePanel() {
             StatusDot(
                 active = SurgicalSession.scopeExudate >= 0.62f,
                 color = Palette.Red,
-                label = "渗出 %.2f".format(SurgicalSession.scopeExudate)
+                label = String.format(java.util.Locale.US, "渗出 %.2f", SurgicalSession.scopeExudate)
             )
             Spacer(Modifier.width(10.dp))
             Text(

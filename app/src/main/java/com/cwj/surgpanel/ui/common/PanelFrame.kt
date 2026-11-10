@@ -19,6 +19,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.State
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.mutableFloatStateOf
@@ -267,20 +268,22 @@ fun SectionLabel(text: String, accent: Color = Palette.Cyan) {
  * 每帧向 [PerfGovernor] 上报耗时用于降级判定，不上报任何业务数据。
  */
 @Composable
-fun rememberVisualSeconds(): Float {
-    var seconds by remember { mutableFloatStateOf(0f) }
-    LaunchedEffect(Unit) {
+fun rememberVisualClock(active: Boolean = true): State<Float> {
+    val seconds = remember { mutableFloatStateOf(0f) }
+    LaunchedEffect(active) {
+        if (!active) return@LaunchedEffect
         var prev = 0L
         var lastEmit = 0L
         while (true) {
             withFrameNanos { now ->
                 if (prev != 0L) {
-                    PerfGovernor.reportFrame((now - prev) / 1_000_000f)
+                    // 多窗共用同一帧号：PerfGovernor 按帧号去重，避免同一帧被重复计入平均耗时
+                    PerfGovernor.reportFrame((now - prev) / 1_000_000f, now)
                     val intervalMs = PerfGovernor.level.redrawIntervalMs
                     if (lastEmit == 0L) {
                         lastEmit = now
                     } else if ((now - lastEmit) / 1_000_000f >= intervalMs) {
-                        seconds += ((now - lastEmit) / 1_000_000_000f).coerceIn(0f, 0.25f)
+                        seconds.floatValue += ((now - lastEmit) / 1_000_000_000f).coerceIn(0f, 0.25f)
                         lastEmit = now
                     }
                 } else {
@@ -292,10 +295,6 @@ fun rememberVisualSeconds(): Float {
     }
     return seconds
 }
-
-/** 帧驱动的秒计时，用于波形与纹理的连续动画。 */
-@Composable
-fun rememberAnimatedSeconds(): Float = rememberVisualSeconds()
 
 /**
  * 数值平滑器：把外部变化缓慢插值到当前值，避免波形幅值与图表出现跳变。
@@ -383,18 +382,18 @@ fun MicButton(
 }
 
 /**
- * 窗口边缘全息层：四边渐变光晕 + 内描边亮线 + 扫描线 + 四角刻线。
+ * 窗口边缘全息层：四边渐变光晕 + 内描边亮线 + 四角刻线。
  *
- * 性能约束：
- * 1. 不使用实时高斯模糊，全部用线性渐变的纯色填充模拟发光，GPU 代价与普通矩形填充同级；
- * 2. 逐帧动画时钟只在“视线驻留”或“红色警报”时启用，待命态走静态极淡边缘，
- *    静止时几乎不产生额外绘制；动画采样仍受 [PerfGovernor] 的视觉预算节流；
- * 3. 该层不挂任何指针输入修饰符，不影响窗口拖拽、缩放与内容点击。
+ * 视觉克制（P2）：
+ * 1. 扫描线与频闪呼吸默认全关：待命、视线驻留态均为完全静态边缘，界面不再出现持续游走的亮线；
+ *    仅红色警报保留一次极低频呼吸（周期约 1.8s、亮度振幅 8%），用于传达事件本身而非装饰；
+ * 2. 四边渐变 Brush 按强调色与边缘厚度缓存，每帧只递交 alpha，逐帧零 Brush 分配；
+ * 3. 不使用实时高斯模糊，全部用线性渐变的纯色填充模拟发光，GPU 代价与普通矩形填充同级；
+ * 4. 帧时钟只在“红色警报”时启动，其余状态协程直接退出，不产生任何帧回调；
+ * 5. 该层不挂任何指针输入修饰符，不影响窗口拖拽、缩放与内容点击。
  */
 @Composable
 private fun HoloEdgeOverlay(accent: Color, gazeHot: Boolean, alert: Boolean) {
-    val animated = gazeHot || alert
-    val seconds = if (animated) rememberVisualSeconds() else 0f
     val tint = when {
         alert -> Palette.Red
         gazeHot -> Palette.Cyan
@@ -405,86 +404,39 @@ private fun HoloEdgeOverlay(accent: Color, gazeHot: Boolean, alert: Boolean) {
         gazeHot -> 0.85f
         else -> 0.35f
     }
-    // 警报时的低频呼吸：让边缘像持续报警的设备一样起伏
-    val pulse = if (alert) 0.7f + 0.3f * ((sin(seconds * 5.4f) + 1f) / 2f) else 1f
+    // 只有红色警报才启动帧时钟；active=false 时协程立即退出，不订阅帧回调
+    val clock = rememberVisualClock(active = alert)
+    val edgePx = with(androidx.compose.ui.platform.LocalDensity.current) { 30.dp.toPx() }
+    // 渐变端点只依赖强调色与边缘厚度：缓存四个 Brush，每帧仅调整 alpha
+    val brushes = remember(tint, edgePx) {
+        listOf(
+            Brush.verticalGradient(listOf(tint, Color.Transparent), startY = 0f, endY = edgePx),
+            Brush.verticalGradient(listOf(Color.Transparent, tint), startY = 0f, endY = edgePx),
+            Brush.horizontalGradient(listOf(tint, Color.Transparent), startX = 0f, endX = edgePx),
+            Brush.horizontalGradient(listOf(Color.Transparent, tint), startX = 0f, endX = edgePx)
+        )
+    }
 
     Canvas(Modifier.fillMaxSize()) {
         val w = size.width
         val h = size.height
-        val edge = 30.dp.toPx().coerceAtMost(minOf(w, h) * 0.16f)
-        val glow = (if (animated) 0.16f else 0.07f) * strength * pulse
+        val edge = edgePx.coerceAtMost(minOf(w, h) * 0.16f)
+        // 警报时的极低频呼吸：周期约 1.8s、亮度振幅 8%，读取发生在绘制阶段
+        val breath = if (alert) 0.92f + 0.08f * ((sin(clock.value * 3.49f) + 1f) / 2f) else 1f
+        val glow = (if (alert || gazeHot) 0.16f else 0.07f) * strength * breath
 
-        drawRect(
-            brush = Brush.verticalGradient(
-                listOf(tint.copy(alpha = glow), Color.Transparent),
-                startY = 0f, endY = edge
-            ),
-            topLeft = Offset.Zero,
-            size = Size(w, edge)
-        )
-        drawRect(
-            brush = Brush.verticalGradient(
-                listOf(Color.Transparent, tint.copy(alpha = glow)),
-                startY = h - edge, endY = h
-            ),
-            topLeft = Offset(0f, h - edge),
-            size = Size(w, edge)
-        )
-        drawRect(
-            brush = Brush.horizontalGradient(
-                listOf(tint.copy(alpha = glow * 0.8f), Color.Transparent),
-                startX = 0f, endX = edge
-            ),
-            topLeft = Offset.Zero,
-            size = Size(edge, h)
-        )
-        drawRect(
-            brush = Brush.horizontalGradient(
-                listOf(Color.Transparent, tint.copy(alpha = glow * 0.8f)),
-                startX = w - edge, endX = w
-            ),
-            topLeft = Offset(w - edge, 0f),
-            size = Size(edge, h)
-        )
+        drawRect(brush = brushes[0], size = Size(w, edge), alpha = glow)
+        drawRect(brush = brushes[1], topLeft = Offset(0f, h - edge), size = Size(w, edge), alpha = glow)
+        drawRect(brush = brushes[2], size = Size(edge, h), alpha = glow * 0.8f)
+        drawRect(brush = brushes[3], topLeft = Offset(w - edge, 0f), size = Size(edge, h), alpha = glow * 0.8f)
 
         // 内描边亮线
         drawRect(
-            color = tint.copy(alpha = 0.22f * strength * pulse),
+            color = tint.copy(alpha = 0.22f * strength * breath),
             topLeft = Offset(1f, 1f),
             size = Size((w - 2f).coerceAtLeast(0f), (h - 2f).coerceAtLeast(0f)),
             style = Stroke(width = 1.4f)
         )
-
-        // 扫描线：仅互动/警报态运行，横向为主、竖向错相辅助
-        if (animated) {
-            val bandHalf = 22.dp.toPx()
-            val sweepY = ((seconds * 0.16f) % 1f) * h
-            drawRect(
-                brush = Brush.verticalGradient(
-                    listOf(
-                        Color.Transparent,
-                        tint.copy(alpha = 0.10f * strength),
-                        Color.Transparent
-                    ),
-                    startY = sweepY - bandHalf, endY = sweepY + bandHalf
-                ),
-                topLeft = Offset(0f, (sweepY - bandHalf).coerceAtLeast(0f)),
-                size = Size(w, bandHalf * 2f)
-            )
-            drawLine(
-                color = tint.copy(alpha = 0.22f * strength),
-                start = Offset(0f, sweepY),
-                end = Offset(w, sweepY),
-                strokeWidth = 1f
-            )
-            val sweepX = ((seconds * 0.11f + 0.37f) % 1f) * w
-            drawLine(
-                color = tint.copy(alpha = 0.12f * strength),
-                start = Offset(sweepX, 0f),
-                end = Offset(sweepX, h),
-                strokeWidth = 1f
-            )
-        }
 
         // 四角刻线
         val tick = 18.dp.toPx()

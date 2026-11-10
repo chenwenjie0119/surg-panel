@@ -157,10 +157,11 @@ object SessionClock {
 
         if (level != lastAlarm) {
             SurgicalSession.alarm = level
+            val exudateTxt = String.format(java.util.Locale.US, "%.2f", exudate)
             android.util.Log.i(
                 "SurgeryClock",
                 "alarm=$level fusion=$hits[$hrHit,$sbpHit,$exudateHit] mode=${SurgicalSession.appMode.name} " +
-                    "t=${t.toInt()}s hr=$hr sbp=$sbp spo2=$spo2 exudate=${"%.2f".format(exudate)} " +
+                    "t=${t.toInt()}s hr=$hr sbp=$sbp spo2=$spo2 exudate=$exudateTxt " +
                     "bleed=$bleeding instrument=${external != null}"
             )
             SurgicalSession.alarmText = when (level) {

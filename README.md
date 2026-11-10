@@ -11,6 +11,8 @@ Each stream lives in its own `WindowContainer` and can be freely placed, resized
 
 ![Four anchored window containers](shots/03-spatial.jpg)
 
+Architecture and Code Review details are available in docs/code_review.md
+
 ---
 
 ## 1. Build and run

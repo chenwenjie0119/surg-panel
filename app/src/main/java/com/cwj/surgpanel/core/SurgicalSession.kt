@@ -47,7 +47,7 @@ enum class LayoutPreset(val label: String) {
 
 /** 手术事件日志条目。 */
 data class CaseEvent(val atSec: Int, val text: String, val critical: Boolean = false) {
-    fun stamp(): String = "%02d:%02d".format(atSec / 60, atSec % 60)
+    fun stamp(): String = String.format(java.util.Locale.US, "%02d:%02d", atSec / 60, atSec % 60)
 }
 
 /**
@@ -173,12 +173,30 @@ object SurgicalSession {
         CaseEvent(38, "胆囊三角暴露，进入分离阶段")
     )
 
+    /**
+     * 事件日志写入。
+     *
+     * [events] 是 Compose 快照列表，只允许在主线程修改，而日志来源横跨三处：
+     * SessionClock 报警线程、AiController 推理协程、UI 交互。这里统一收口到主线程，
+     * 非主线程调用转为 post；时间戳在调用线程取定，避免排队一拍后记到错误的秒数上。
+     */
     fun log(text: String, critical: Boolean = false) {
-        events.add(0, CaseEvent(elapsedSec, text, critical))
+        val atSec = elapsedSec
+        if (android.os.Looper.myLooper() == android.os.Looper.getMainLooper()) {
+            writeEvent(atSec, text, critical)
+        } else {
+            mainHandler.post { writeEvent(atSec, text, critical) }
+        }
+    }
+
+    private val mainHandler by lazy { android.os.Handler(android.os.Looper.getMainLooper()) }
+
+    private fun writeEvent(atSec: Int, text: String, critical: Boolean) {
+        events.add(0, CaseEvent(atSec, text, critical))
         while (events.size > 20) events.removeAt(events.lastIndex)
     }
 
-    fun clock(): String = "%02d:%02d".format(elapsedSec / 60, elapsedSec % 60)
+    fun clock(): String = String.format(java.util.Locale.US, "%02d:%02d", elapsedSec / 60, elapsedSec % 60)
 
     /** 阻断剩余秒数（未开始阻断时按满额显示）。 */
     fun blockadeRemain(): Int = (BLOCKADE_LIMIT_SEC - blockadeSec).coerceAtLeast(0)
@@ -186,7 +204,7 @@ object SurgicalSession {
     /** 阻断倒计时文本 MM:SS。 */
     fun blockadeLabel(): String {
         val r = blockadeRemain()
-        return "%02d:%02d".format(r / 60, r % 60)
+        return String.format(java.util.Locale.US, "%02d:%02d", r / 60, r % 60)
     }
 
     /** 台上纱布与清点数量是否一致，一致方可关腹。 */

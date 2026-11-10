@@ -34,7 +34,7 @@ import com.cwj.surgpanel.core.SignalEngine
 import com.cwj.surgpanel.core.SurgicalSession
 import com.cwj.surgpanel.ui.common.PanelFrame
 import com.cwj.surgpanel.ui.common.StatusDot
-import com.cwj.surgpanel.ui.common.rememberAnimatedSeconds
+import com.cwj.surgpanel.ui.common.rememberVisualClock
 import com.cwj.surgpanel.ui.common.rememberSmoothFloat
 import com.cwj.surgpanel.ui.theme.Palette
 import com.pico.spatial.ui.design.Text
@@ -46,7 +46,8 @@ import kotlin.math.roundToInt
  */
 @Composable
 fun VitalsPanel() {
-    val t = rememberAnimatedSeconds()
+    // 只拿时钟句柄，不在组合阶段读值：面板本身不再每帧重组
+    val clock = rememberVisualClock()
     val density = androidx.compose.ui.platform.LocalDensity.current
     // 标注画笔复用：三条泳道每帧不再各自新建 Paint，满血与降级状态下对象开销恒定。
     val labelPaint = androidx.compose.runtime.remember {
@@ -199,6 +200,8 @@ fun VitalsPanel() {
                 .background(Palette.Panel)
         ) {
             Canvas(Modifier.fillMaxSize()) {
+                // 时钟值在绘制阶段读取：只触发重绘，不触发组合阶段重组
+                val t = clock.value
                 val w = size.width
                 val laneH = size.height / 3f
                 val hr = hrSmooth.roundToInt()

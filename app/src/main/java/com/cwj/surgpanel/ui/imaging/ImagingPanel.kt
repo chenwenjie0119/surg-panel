@@ -38,7 +38,7 @@ import com.cwj.surgpanel.ui.common.ChipButton
 import com.cwj.surgpanel.ui.common.PanelFrame
 import com.cwj.surgpanel.ui.common.SectionLabel
 import com.cwj.surgpanel.ui.common.StatusDot
-import com.cwj.surgpanel.ui.common.rememberAnimatedSeconds
+import com.cwj.surgpanel.ui.common.rememberVisualClock
 import com.cwj.surgpanel.ui.theme.Palette
 import com.pico.spatial.ui.design.Text
 import kotlin.math.min
@@ -49,7 +49,8 @@ import kotlin.math.min
  */
 @Composable
 fun ImagingPanel() {
-    val t = rememberAnimatedSeconds()
+    // 只持句柄不读值：面板主体不参与每帧重组
+    val clock = rememberVisualClock()
     val modality = SurgicalSession.modality
     val slice = SurgicalSession.sliceIndex
     val ww = SurgicalSession.windowWidth
@@ -68,7 +69,7 @@ fun ImagingPanel() {
             StatusDot(active = SurgicalSession.linkMode != LinkMode.OFF, color = Palette.Mint, label = "LINK")
             Spacer(Modifier.width(10.dp))
             Text(
-                text = "%.2fx".format(zoom),
+                text = String.format(java.util.Locale.US, "%.2fx", zoom),
                 color = Palette.Cyan,
                 fontSize = 12.sp,
                 fontFamily = FontFamily.Monospace
@@ -124,6 +125,8 @@ fun ImagingPanel() {
                 .background(Color.Black)
         ) {
             Canvas(Modifier.fillMaxSize()) {
+                // 绘制阶段读取时钟：每帧只重绘，不重组
+                val t = clock.value
                 // 缩放矩阵：以画布中心为锚点等比放大切面，越界部分由裁剪域收敛到窗口内
                 val side = min(size.width, size.height) * 0.94f * zoom
                 val dst = side.toInt()
@@ -162,20 +165,21 @@ fun ImagingPanel() {
                     strokeWidth = 1f
                 )
 
-                // ROI 关注框：随心跳做呼吸式脉动，联动的可视线索
+                // ROI 关注框：位置固定，仅以极低频微光标示“已锁定”，不脉动、不漂移
                 if (SurgicalSession.roiLocked) {
-                    val pulse = (0.55f + 0.45f * kotlin.math.sin(t * 3.2f))
+                    // 亮度 0.20~0.32、周期约 1.2s，视觉上为静态微光而非呼吸闪烁
+                    val glow = 0.26f + 0.06f * kotlin.math.sin(t * 5.24f)
                     val roiSize = dst * 0.26f
-                    val rx = cx - roiSize / 2f + kotlin.math.sin(t * 0.9f) * dst * 0.02f
-                    val ry = cy - roiSize / 2f + kotlin.math.cos(t * 0.7f) * dst * 0.025f
+                    val rx = cx - roiSize / 2f
+                    val ry = cy - roiSize / 2f
                     drawRect(
-                        color = Palette.Amber.copy(alpha = 0.35f + 0.4f * pulse),
+                        color = Palette.Amber.copy(alpha = glow),
                         topLeft = Offset(rx, ry),
                         size = Size(roiSize, roiSize),
                         style = Stroke(width = 2f)
                     )
                     drawRect(
-                        color = Palette.Amber.copy(alpha = 0.08f),
+                        color = Palette.Amber.copy(alpha = 0.06f),
                         topLeft = Offset(rx, ry),
                         size = Size(roiSize, roiSize)
                     )

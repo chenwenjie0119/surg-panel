@@ -48,7 +48,7 @@ import com.cwj.surgpanel.ui.common.NarrationBlock
 import com.cwj.surgpanel.ui.common.PanelFrame
 import com.cwj.surgpanel.ui.common.SectionLabel
 import com.cwj.surgpanel.ui.common.StatusDot
-import com.cwj.surgpanel.ui.common.rememberVisualSeconds
+import com.cwj.surgpanel.ui.common.rememberVisualClock
 import com.cwj.surgpanel.ui.theme.Palette
 import com.pico.spatial.ui.design.Text
 import kotlin.math.min
@@ -63,7 +63,8 @@ import kotlin.math.sin
  */
 @Composable
 fun FocusPanel() {
-    val t = rememberVisualSeconds()
+    // 只持句柄不读值：放大镜视图以外的区域不随帧重组
+    val clock = rememberVisualClock()
     val stage = SurgicalSession.focusStage
     val anim = SurgicalSession.focusAnim
     val incident = SurgicalSession.incident
@@ -104,7 +105,7 @@ fun FocusPanel() {
         GazeStrip(gazeHot)
         Spacer(Modifier.height(8.dp))
         Row(Modifier.fillMaxWidth().weight(1f)) {
-            FocusViewport(stage, anim, t, incident, Modifier.weight(1.12f).fillMaxHeight())
+            FocusViewport(stage, anim, clock, incident, Modifier.weight(1.12f).fillMaxHeight())
             Spacer(Modifier.width(14.dp))
             AnalysisColumn(incident, Modifier.weight(1f).fillMaxHeight())
         }
@@ -251,7 +252,7 @@ private fun StageBar(stage: FocusStage, anim: Float) {
 private fun FocusViewport(
     stage: FocusStage,
     anim: Float,
-    t: Float,
+    clock: androidx.compose.runtime.State<Float>,
     incident: IncidentCase?,
     modifier: Modifier
 ) {
@@ -261,7 +262,8 @@ private fun FocusViewport(
             .border(1.dp, Palette.Stroke)
     ) {
         Canvas(Modifier.fillMaxSize()) {
-            drawFocusScene(stage, anim, t, incident != null || stage != FocusStage.IDLE)
+            // 时钟在绘制阶段读取，视图区每帧只重绘
+            drawFocusScene(stage, anim, clock.value, incident != null || stage != FocusStage.IDLE)
         }
 
         Box(Modifier.align(Alignment.TopStart).padding(10.dp)) {
@@ -492,15 +494,15 @@ private fun DrawScope.drawFocusScene(stage: FocusStage, anim: Float, t: Float, h
         strokeWidth = 2f
     )
 
-    // 病灶与出血点
+    // 病灶与出血点：环形与光晕的尺度变化收敛到 3% 以内，读作稳定标注而非频闪
     val lesion = Offset(cx + r * 0.32f, cy - r * 0.16f)
-    val pulse = 0.6f + 0.4f * sin(t * 3f)
+    val pulse = 0.97f + 0.03f * sin(t * 1.4f)
     if (hasCase) {
-        drawCircle(Palette.Red.copy(alpha = 0.2f), radius = r * 0.26f * (0.8f + 0.2f * pulse), center = lesion)
+        drawCircle(Palette.Red.copy(alpha = 0.2f), radius = r * 0.26f * pulse, center = lesion)
         drawCircle(Palette.Red, radius = r * 0.1f, center = lesion)
         drawCircle(
             Palette.Red.copy(alpha = 0.85f),
-            radius = r * 0.2f * (0.9f + 0.25f * pulse),
+            radius = r * 0.2f * pulse,
             center = lesion,
             style = Stroke(width = 2f)
         )

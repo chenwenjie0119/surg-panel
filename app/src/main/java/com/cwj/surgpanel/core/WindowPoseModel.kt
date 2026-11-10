@@ -23,9 +23,9 @@ data class PanelPose(
     val halfW: Float,
     val halfH: Float
 ) {
-    fun coordText(): String = "%.2f / %.2f / %.2f".format(x, y, z)
+    fun coordText(): String = String.format(java.util.Locale.US, "%.2f / %.2f / %.2f", x, y, z)
 
-    fun distanceText(): String = "%.2f m".format(kotlin.math.sqrt(x * x + y * y + z * z))
+    fun distanceText(): String = String.format(java.util.Locale.US, "%.2f m", kotlin.math.sqrt(x * x + y * y + z * z))
 }
 
 /**

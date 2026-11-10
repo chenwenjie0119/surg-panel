@@ -56,18 +56,36 @@ object PerfGovernor {
     var avgFrameMs: Float = 0f
         private set
 
-    private const val WORSE_CONFIRM_FRAMES = 30
-    private const val BETTER_CONFIRM_FRAMES = 240
-    private var worseFrames = 0
-    private var betterFrames = 0
+    /**
+     * 降级/回升确认窗口。
+     *
+     * 原先按“帧数”计数，在 60Hz 与 20Hz 下代表的真实时长相差三倍，
+     * 这里统一换成累计帧耗时（毫秒），确认时间与刷新率解耦。
+     */
+    private const val WORSE_CONFIRM_MS = 400f
+    private const val BETTER_CONFIRM_MS = 4000f
+    private var worseMs = 0f
+    private var betterMs = 0f
     private var attached = false
+    private var appContext: Context? = null
+    private var receiver: android.content.BroadcastReceiver? = null
+
+    /**
+     * 上一次被采信的帧号。
+     *
+     * 五个悬浮窗各自持有时钟，同一帧会被重复上报；只采信每帧第一次上报，
+     * 否则帧间隔会被算成 0，再被 EMA 拉低，导致提前降级。
+     */
+    @Volatile
+    private var lastFrameNs = 0L
 
     /** 挂接电池广播，只读系统状态，不改任何设置。 */
     fun attach(context: Context) {
         if (attached) return
         attached = true
         val app = context.applicationContext
-        val receiver = object : android.content.BroadcastReceiver() {
+        appContext = app
+        val batteryReceiver = object : android.content.BroadcastReceiver() {
             override fun onReceive(ctx: Context?, intent: Intent?) {
                 val i = intent ?: return
                 val pct = i.getIntExtra(BatteryManager.EXTRA_LEVEL, -1)
@@ -82,16 +100,17 @@ object PerfGovernor {
                 }
                 val pm = app.getSystemService(Context.POWER_SERVICE) as? PowerManager
                 powerSave = pm?.isPowerSaveMode ?: false
-                evaluate()
+                evaluate(0f)
             }
         }
         runCatching {
-            app.registerReceiver(receiver, IntentFilter().apply {
+            app.registerReceiver(batteryReceiver, IntentFilter().apply {
                 addAction(Intent.ACTION_BATTERY_CHANGED)
                 addAction(Intent.ACTION_POWER_CONNECTED)
                 addAction(Intent.ACTION_POWER_DISCONNECTED)
                 addAction(PowerManager.ACTION_POWER_SAVE_MODE_CHANGED)
             })
+            receiver = batteryReceiver
         }
         runCatching {
             val pm = app.getSystemService(Context.POWER_SERVICE) as? PowerManager
@@ -102,41 +121,72 @@ object PerfGovernor {
     /**
      * 帧耗时上报。由视觉时钟在每帧回调，内部仅做一次滑动平均与去抖，
      * 不写 Compose 状态，因此不会引起额外重组。
+     *
+     * @param frameNs Compose 的帧时间戳（[androidx.compose.runtime.withFrameNanos] 的 now）。
+     *   多个悬浮窗同帧上报时传同一个值，第二次起直接丢弃，保证 EMA 只吃真实帧间隔。
+     *   传 0 表示跳过帧号去重（供外部手工上报使用）。
      */
-    fun reportFrame(frameMs: Float) {
+    fun reportFrame(frameMs: Float, frameNs: Long = 0L) {
         if (!frameMs.isFinite() || frameMs <= 0f) return
-        avgFrameMs = if (avgFrameMs <= 0f) frameMs else avgFrameMs * 0.94f + frameMs * 0.06f
-        evaluate()
+        if (frameNs != 0L) {
+            if (frameNs == lastFrameNs) return
+            lastFrameNs = frameNs
+        }
+        val dt = frameMs.coerceAtMost(200f)
+        avgFrameMs = if (avgFrameMs <= 0f) dt else avgFrameMs * 0.94f + dt * 0.06f
+        evaluate(dt)
     }
 
-    private fun evaluate() {
-        val raw = when {
-            powerSave -> Level.LOW
-            !charging && batteryPercent in 0..12 -> Level.LOW
-            avgFrameMs > 26f -> Level.LOW
-            !charging && batteryPercent in 0..22 -> Level.BALANCED
-            avgFrameMs > 19f -> Level.BALANCED
-            else -> Level.FULL
-        }
+    /** 注销电池广播，避免进程内重复 attach 造成接收器泄漏。 */
+    fun detach() {
+        val r = receiver ?: return
+        runCatching { appContext?.unregisterReceiver(r) }
+        receiver = null
+        appContext = null
+        attached = false
+    }
+
+    /** 只读判定：当前条件下应处的等级。 */
+    private fun decideLevel(): Level = when {
+        powerSave -> Level.LOW
+        !charging && batteryPercent in 0..12 -> Level.LOW
+        avgFrameMs > 26f -> Level.LOW
+        !charging && batteryPercent in 0..22 -> Level.BALANCED
+        avgFrameMs > 19f -> Level.BALANCED
+        else -> Level.FULL
+    }
+
+    /** 电源类硬条件：属于系统事实，不走帧时间去抖。 */
+    private fun systemPressure(): Boolean = powerSave || (!charging && batteryPercent in 0..12)
+
+    private fun evaluate(dtMs: Float) {
+        val raw = decideLevel()
         if (raw == level) {
-            worseFrames = 0
-            betterFrames = 0
+            worseMs = 0f
+            betterMs = 0f
             return
         }
         if (raw.ordinal > level.ordinal) {
-            worseFrames++
-            betterFrames = 0
-            if (worseFrames >= WORSE_CONFIRM_FRAMES) {
+            // 省电模式 / 低电量立即降级：这是系统状态，不是渲染抖动。
+            if (systemPressure()) {
                 level = raw
-                worseFrames = 0
+                worseMs = 0f
+                betterMs = 0f
+                return
+            }
+            worseMs += dtMs
+            betterMs = 0f
+            if (worseMs >= WORSE_CONFIRM_MS) {
+                level = raw
+                worseMs = 0f
             }
         } else {
-            betterFrames++
-            worseFrames = 0
-            if (betterFrames >= BETTER_CONFIRM_FRAMES) {
+            betterMs += dtMs
+            worseMs = 0f
+            if (betterMs >= BETTER_CONFIRM_MS) {
                 // 逐级回升，不跳级，避免亮度突变干扰术者。
                 level = Level.values()[(level.ordinal - 1).coerceAtLeast(0)]
-                betterFrames = 0
+                betterMs = 0f
             }
         }
     }
