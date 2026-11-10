@@ -6,6 +6,7 @@ Each stream lives in its own `WindowContainer` and can be freely placed, resized
 
 > Stack: **pure Kotlin + PICO Spatial SDK 6.1.9 (Compose for Spatial), no 3D engine dependency**
 > Headset-free development: PICO Emulator (managed by pico-cli, x86_64 image)
+> Release: **v1.2.1** (versionCode 3) - frame-report de-duplication, single-threaded session logging, per-panel animation clock
 
 **Language:** English | [简体中文](README.zh-CN.md)
 
@@ -224,17 +225,7 @@ The operator sees the lesion but cannot point at it for the assistant.
 
 ---
 
-## 9. AI tooling used
-
-Disclosure for the submission's creation-process entry:
-
-| Field | Value |
-|---|---|
-| AI IDE | Marvis desktop agent, driven from the command line rather than a graphical AI IDE |
-| Main models | Hy4, DeepSeek V4.1 flash |
-| Notes | Used for module scaffolding, code review and documentation drafting. Spatial placement constants, alarm hysteresis thresholds, the 100 ms session clock and all panel rendering were reviewed and tuned by hand. PICO CLI 0.6.1 handled emulator provisioning and debug packaging. |
-
-## 10. Screenshots
+## 9. Screenshots
 
 All shots are captured from the PICO Emulator with `adb exec-out screencap`.
 

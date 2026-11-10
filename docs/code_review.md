@@ -1,15 +1,4 @@
----
-AIGC:
-    Label: "1"
-    ContentProducer: 001191440300708461136T1XGW3
-    ProduceID: 3144a37a9207ea4301a32a24b64ea984_9828f14cdcc611f1bc42525400638852
-    ReservedCode1: ZXzc/Ca1/kCcRCk2iTh2wpqa01KqpD0sV6eKJaA0jSv3+/a1uwvec96mwsqxrBM8u9b+fc8mEs50jwbfOWxFXwF0X9FH4vAbAP21jcYO/xEHQ3p2/yGWxq49K0OBB3YI2cT6IlHweoyeA0aYiVTrdSne5/SmO6X4h0CzKXRpcLdbhksZ0bu+PDiCYNw=
-    ContentPropagator: 001191440300708461136T1XGW3
-    PropagateID: 3144a37a9207ea4301a32a24b64ea984_9828f14cdcc611f1bc42525400638852
-    ReservedCode2: ZXzc/Ca1/kCcRCk2iTh2wpqa01KqpD0sV6eKJaA0jSv3+/a1uwvec96mwsqxrBM8u9b+fc8mEs50jwbfOWxFXwF0X9FH4vAbAP21jcYO/xEHQ3p2/yGWxq49K0OBB3YI2cT6IlHweoyeA0aYiVTrdSne5/SmO6X4h0CzKXRpcLdbhksZ0bu+PDiCYNw=
----
-
-复查完毕。以下是纯静态审阅结果（未跑 Gradle、未上机），覆盖 SessionClock、AiController、AiNarrator、NarrationBlock、SurgicalAudio、GazePinchController、PanelFrame、VitalsPanel、ImagingPanel、ScopePanel、SurgicalSession、ConsolePage、FocusPanel。
+静态审阅记录（未跑 Gradle、未上机），覆盖 SessionClock、AiController、AiNarrator、NarrationBlock、SurgicalAudio、GazePinchController、PanelFrame、VitalsPanel、ImagingPanel、ScopePanel、SurgicalSession、ConsolePage、FocusPanel。
 
 ## 一、语法复查
 
@@ -89,5 +78,4 @@ AIGC:
 | P1 | ScopePanel 静态层烘焙、MiniRadar ring buffer、音频精确 sleep、Narrator 步进 | ScopePanel / MiniRadar / SurgicalAudio / AiNarrator | 波形降密度已由 waveStride 控制，数值与红框保持实时 |
 | P2 | 动画参数按上表收敛 + 动效强度开关 + 告警仲裁与静音 | PanelFrame / ScopePanel / ImagingPanel / SurgicalAudio / SessionClock(仅音频调度) | SessionClock 100ms 心跳与判级逻辑完全不改 |
 
-要现在动手的话，我建议从 P0 开始，改完一批给你看 diff 摘要，再进 P1。确认即开工。
-*（内容由AI生成，仅供参考）*
+实施顺序：P0 → P1 → P2，每阶段单独提交，便于回溯。

@@ -6,6 +6,7 @@
 
 > 技术栈：**纯 Kotlin + PICO Spatial SDK 6.1.9（Compose for Spatial）+ 无 3D 引擎依赖**
 > 无头显开发：PICO Emulator（pico-cli 管理，x86_64 镜像）
+> 版本：**v1.2.1**（versionCode 3）—— 帧上报去重、会话日志单线程化、各面板动画时钟下沉
 
 **语言：** [English](README.md) | 简体中文
 
@@ -223,17 +224,7 @@ alarm=NONE      t=68s+  hr=79  sbp=116 spo2=99  bleed=false
 
 ---
 
-## 9. AI 工具使用说明
-
-按提交材料「创作过程」一栏如实填写：
-
-| 项目 | 内容 |
-|---|---|
-| AI IDE | Marvis 桌面助手，以命令行方式驱动，未使用图形化 AI IDE |
-| 主要模型 | Hy4、DeepSeek V4.1 flash |
-| 相关说明 | 用于模块骨架生成、代码审核与文档草拟；空间布局常量、告警回滞阈值、100 ms 会话时钟与全部面板渲染由作者逐行核对调整。PICO CLI 0.6.1 负责模拟器准备与调试包构建。 |
-
-## 10. 截图
+## 9. 截图
 
 均为 PICO Emulator 实拍（`adb exec-out screencap`）。
 
