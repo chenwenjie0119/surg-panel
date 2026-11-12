@@ -28,6 +28,14 @@ object SessionClock {
     /** 联合危急的确认拍数：100 ms × 15 = 1.5 s。 */
     private const val FUSION_CONFIRM_TICKS = 15
 
+    /**
+     * NOTICE 退出的安静拍数：100 ms × 15 = 1.5 s。
+     * 单项阈值（如 SpO2 < 97）在 96/97 间抖动时，按拍判定会让 NOTICE 与 NONE 每
+     * 100~200 ms 翻转一次，青点变闪烁。NOTICE 只是静默微提示，进入可灵敏、退出须惰性：
+     * 连续 1.5 s 不再命中才回落 NONE。
+     */
+    private const val NOTICE_QUIET_TICKS = 15
+
     @Volatile
     private var started = false
 
@@ -38,6 +46,9 @@ object SessionClock {
 
     /** 上一次的渗血状态，用于边沿检测（一块纱布只记一次）。 */
     private var lastBleeding = false
+
+    /** NOTICE 条件连续未命中的拍数，用于 1.5 s 退出消抖。 */
+    private var noticeQuiet = 0
 
     fun start() {
         if (started) return
@@ -128,6 +139,10 @@ object SessionClock {
         // 微提示门槛：单项轻度越界即点亮青点，全程无声、不写事件流
         val noticeIn = hits >= 1 || hr > 90 || sbp < 105 || spo2 < 97
 
+        // NOTICE 进入灵敏、退出惰性，详见 NOTICE_QUIET_TICKS 注释
+        noticeQuiet = if (noticeIn) 0 else noticeQuiet + 1
+        val noticeSettled = noticeQuiet >= NOTICE_QUIET_TICKS
+
         val forced = android.os.SystemClock.elapsedRealtime() < SurgicalSession.forceCriticalUntilMs
         val level = when {
             forced -> AlarmLevel.CRITICAL
@@ -136,7 +151,8 @@ object SessionClock {
                     when {
                         watchIn -> AlarmLevel.WATCH
                         noticeIn -> AlarmLevel.NOTICE
-                        else -> AlarmLevel.NONE
+                        noticeSettled -> AlarmLevel.NONE
+                        else -> AlarmLevel.NOTICE
                     }
                 } else {
                     AlarmLevel.CRITICAL
@@ -150,7 +166,7 @@ object SessionClock {
                 }
             watchIn -> AlarmLevel.WATCH
             lastAlarm == AlarmLevel.NOTICE ->
-                if (!noticeIn) AlarmLevel.NONE else AlarmLevel.NOTICE
+                if (noticeSettled) AlarmLevel.NONE else AlarmLevel.NOTICE
             noticeIn -> AlarmLevel.NOTICE
             else -> AlarmLevel.NONE
         }

@@ -12,8 +12,8 @@ android {
         applicationId = "com.cwj.surgpanel"
         minSdk = 35
         targetSdk = 35
-        versionCode = 3
-        versionName = "1.2.1"
+        versionCode = 4
+        versionName = "1.3.0"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         ndk { abiFilters.add("arm64-v8a") }

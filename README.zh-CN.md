@@ -4,15 +4,17 @@
 在一台手术室内，把医生真正需要同时盯住的四块信息流搬进空间：**CT/MRI 切面、实时生命体征、主刀内窥镜视野，以及一个总控台**。
 四块内容以独立 WindowContainer 存在，可被头部与手势自由摆放、缩放、吸附，同时通过共享会话状态互相联动。
 
-> 技术栈：**纯 Kotlin + PICO Spatial SDK 6.1.9（Compose for Spatial）+ 无 3D 引擎依赖**
+> 技术栈：**纯 Kotlin + PICO Spatial SDK 6.2.8（Compose for Spatial）+ 无 3D 引擎依赖**
 > 无头显开发：PICO Emulator（pico-cli 管理，x86_64 镜像）
-> 版本：**v1.2.1**（versionCode 3）—— 帧上报去重、会话日志单线程化、各面板动画时钟下沉
+> 版本：**v1.3.0**（versionCode 4）—— Spatial SDK 升级至 6.2.8（源码零改动），工具链跟进 pico-cli 0.7.0
 
 **语言：** [English](README.md) | 简体中文
 
 ![四窗口锚定排布](shots/03-spatial.jpg)
 
 ---
+
+> 工具链升级记录（6.1.9 → 6.2.8）：[docs/upgrade-6.2.8.md](docs/upgrade-6.2.8.md)
 
 ## 1. 构建与运行
 
@@ -21,11 +23,15 @@
 $env:PICO_HOME="<pico-home>"
 $env:ANDROID_HOME="<android-sdk>"
 
+# 工具链：pico-cli 0.7.0，并存安装，0.6.1 不受影响
+npm install --prefix C:\DevTools\pico-cli @picoxr/pico-cli@0.7.0
+# 入口：C:\DevTools\pico-cli\node_modules\.bin\pico-cli.cmd
+
 # 构建
 cd <project-root>
 .\gradlew.bat assembleDebug
 
-# 模拟器 + 安装 + 启动（pico-cli 0.6.1）
+# 模拟器 + 安装 + 启动（pico-cli 0.7.0）
 pico-cli emulator start --avd Pico_SurgPanel
 pico-cli app install app\build\outputs\apk\debug\app-debug.apk --replace
 pico-cli app launch com.cwj.surgpanel

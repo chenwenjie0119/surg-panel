@@ -4,15 +4,16 @@ A spatial computing prototype for the **PICO Space Program 2026**, entering the 
 Inside a single operating room it pulls the four information streams a surgeon must watch at once into space: **CT/MRI slices, live vital signs, the endoscopic field, and a master console**.
 Each stream lives in its own `WindowContainer` and can be freely placed, resized and snapped by head and hand gestures, while all four stay synchronized through a shared session state.
 
-> Stack: **pure Kotlin + PICO Spatial SDK 6.1.9 (Compose for Spatial), no 3D engine dependency**
+> Stack: **pure Kotlin + PICO Spatial SDK 6.2.8 (Compose for Spatial), no 3D engine dependency**
 > Headset-free development: PICO Emulator (managed by pico-cli, x86_64 image)
-> Release: **v1.2.1** (versionCode 3) - frame-report de-duplication, single-threaded session logging, per-panel animation clock
+> Release: **v1.3.0** (versionCode 4) - Spatial SDK 6.2.8 toolchain upgrade (zero source change), pico-cli 0.7.0
 
 **Language:** English | [简体中文](README.zh-CN.md)
 
 ![Four anchored window containers](shots/03-spatial.jpg)
 
 Architecture and Code Review details are available in docs/code_review.md
+Toolchain upgrade record (6.1.9 -> 6.2.8): [docs/upgrade-6.2.8.md](docs/upgrade-6.2.8.md)
 
 ---
 
@@ -23,11 +24,15 @@ Architecture and Code Review details are available in docs/code_review.md
 $env:PICO_HOME="<pico-home>"
 $env:ANDROID_HOME="<android-sdk>"
 
+# Toolchain: pico-cli 0.7.0, installed side by side so 0.6.1 stays intact
+npm install --prefix C:\DevTools\pico-cli @picoxr/pico-cli@0.7.0
+# Entry point: C:\DevTools\pico-cli\node_modules\.bin\pico-cli.cmd
+
 # Build
 cd <project-root>
 .\gradlew.bat assembleDebug
 
-# Emulator, install, launch (pico-cli 0.6.1)
+# Emulator, install, launch (pico-cli 0.7.0)
 pico-cli emulator start --avd Pico_SurgPanel
 pico-cli app install app\build\outputs\apk\debug\app-debug.apk --replace
 pico-cli app launch com.cwj.surgpanel
