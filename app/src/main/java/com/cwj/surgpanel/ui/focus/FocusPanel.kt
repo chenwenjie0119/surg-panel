@@ -25,11 +25,13 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.cwj.surgpanel.FOCUS_ID
+import com.cwj.surgpanel.R
 import com.cwj.surgpanel.core.AiAction
 import com.cwj.surgpanel.core.AiController
 import com.cwj.surgpanel.core.AiFinding
@@ -63,6 +65,11 @@ import kotlin.math.sin
  */
 @Composable
 fun FocusPanel() {
+
+    // 点击/语音回调不是 @Composable 上下文，文案在此取出后传入
+    val text_focus_01 = stringResource(R.string.focus_01)
+    // 点击/语音回调不是 @Composable 上下文，文案在此取出后传入
+    val text_focus_07 = stringResource(R.string.focus_07)
     // 只持句柄不读值：放大镜视图以外的区域不随帧重组
     val clock = rememberVisualClock()
     val stage = SurgicalSession.focusStage
@@ -78,14 +85,14 @@ fun FocusPanel() {
 
     DisposableEffect(Unit) {
         GazePinchController.setConfirmHandler(FOCUS_ID) {
-            AiController.confirmAdvice("捏合确认")
+            AiController.confirmAdvice(text_focus_01)
             SurgicalAudio.confirm()
         }
         onDispose { GazePinchController.setConfirmHandler(FOCUS_ID, null) }
     }
 
     PanelFrame(
-        title = "智能异常处置 · 病灶聚焦",
+        title = stringResource(R.string.focus_02),
         tag = "FOCUS",
         accent = accent,
         gazeHot = gazeHot,
@@ -112,7 +119,7 @@ fun FocusPanel() {
         Spacer(Modifier.height(10.dp))
         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
             ChipButton(
-                label = if (SurgicalSession.appMode == AppMode.DEMO) "一键演示 · 术中意外" else "手动触发分析",
+                label = if (SurgicalSession.appMode == AppMode.DEMO) stringResource(R.string.focus_03) else stringResource(R.string.focus_04),
                 active = true,
                 accent = Palette.Red
             ) {
@@ -120,19 +127,19 @@ fun FocusPanel() {
             }
             Spacer(Modifier.width(10.dp))
             ChipButton(
-                label = if (SurgicalSession.adviceConfirmed) "处置已确认" else "捏合确认处置",
+                label = if (SurgicalSession.adviceConfirmed) stringResource(R.string.focus_05) else stringResource(R.string.focus_06),
                 active = SurgicalSession.adviceConfirmed,
                 accent = Palette.Mint
             ) {
-                AiController.confirmAdvice("点击确认")
+                AiController.confirmAdvice(text_focus_07)
                 SurgicalAudio.confirm()
             }
             Spacer(Modifier.width(10.dp))
             Text(
                 text = when {
-                    SurgicalSession.adviceConfirmed -> "处置序列已下发，事件保持展开直至收起"
-                    SurgicalSession.appMode == AppMode.DEMO -> "单次演示约 16 s 后自动回稳，可重复触发"
-                    else -> "产品模式下监护数据越限将自动触发本链路"
+                    SurgicalSession.adviceConfirmed -> stringResource(R.string.focus_08)
+                    SurgicalSession.appMode == AppMode.DEMO -> stringResource(R.string.focus_09)
+                    else -> stringResource(R.string.focus_10)
                 },
                 color = Palette.TextDim,
                 fontSize = 11.sp
@@ -141,7 +148,7 @@ fun FocusPanel() {
             // 视线左下角常驻的极简全局雷达：异常态下医生主要看本窗，雷达放这里随时可见。
             MiniRadar(Modifier.width(92.dp), diameter = 78.dp)
             Spacer(Modifier.width(10.dp))
-            ChipButton("收起事件", false) { AiController.onResolved() }
+            ChipButton(stringResource(R.string.focus_11), false) { AiController.onResolved() }
         }
     }
 }
@@ -177,9 +184,9 @@ private fun GazeStrip(hot: Boolean) {
         Spacer(Modifier.width(8.dp))
         Text(
             text = when {
-                !ready -> "眼动通道初始化中"
-                hot -> "视线驻留 ${(dwell * 100).toInt()}%"
-                else -> "注视本窗 0.8 s 锁定"
+                !ready -> stringResource(R.string.focus_12)
+                hot -> stringResource(R.string.focus_34, (dwell * 100).toInt())
+                else -> stringResource(R.string.focus_13)
             },
             color = if (hot) Palette.Cyan else Palette.TextDim,
             fontSize = 10.sp,
@@ -194,9 +201,9 @@ private fun GazeStrip(hot: Boolean) {
         Spacer(Modifier.weight(1f))
         Text(
             text = if (SurgicalSession.adviceConfirmed) {
-                "处置序列已确认"
+                stringResource(R.string.focus_14)
             } else {
-                "锁定后捏合手指确认处置"
+                stringResource(R.string.focus_15)
             },
             color = if (SurgicalSession.adviceConfirmed) Palette.Mint else Palette.TextDim,
             fontSize = 10.sp,
@@ -276,7 +283,7 @@ private fun FocusViewport(
                 )
                 Spacer(Modifier.height(3.dp))
                 Text(
-                    text = incident?.region ?: "等待异常事件",
+                    text = incident?.region ?: stringResource(R.string.focus_16),
                     color = if (incident != null) Palette.TextPrimary else Palette.TextDim,
                     fontSize = 12.sp,
                     fontWeight = FontWeight.Medium
@@ -287,10 +294,10 @@ private fun FocusViewport(
         Box(Modifier.align(Alignment.BottomStart).padding(10.dp)) {
             Text(
                 text = when (stage) {
-                    FocusStage.SECTION, FocusStage.ADVISE -> "剖切面 · 内部结构已展开"
-                    FocusStage.ENLARGE -> "病灶区放大 ${(100 + 44 * anim).toInt()}%"
-                    FocusStage.LOCALIZE -> "断面扫描定位中"
-                    FocusStage.IDLE -> "链路待命"
+                    FocusStage.SECTION, FocusStage.ADVISE -> stringResource(R.string.focus_17)
+                    FocusStage.ENLARGE -> stringResource(R.string.focus_35, (100 + 44 * anim).toInt())
+                    FocusStage.LOCALIZE -> stringResource(R.string.focus_18)
+                    FocusStage.IDLE -> stringResource(R.string.focus_19)
                 },
                 color = if (stage == FocusStage.IDLE) Palette.TextDim else Palette.Amber,
                 fontSize = 10.sp,
@@ -309,13 +316,13 @@ private fun AnalysisColumn(incident: IncidentCase?, modifier: Modifier) {
             .border(1.dp, Palette.Stroke)
             .padding(12.dp)
     ) {
-        SectionLabel("智能分析", Palette.Amber)
+        SectionLabel(stringResource(R.string.focus_20), Palette.Amber)
         Spacer(Modifier.height(6.dp))
         NarrationBlock(accent = Palette.Amber, visibleLines = 2, fixedHeight = 60)
         Spacer(Modifier.height(8.dp))
         if (incident == null) {
             Text(
-                text = "暂无异常事件",
+                text = stringResource(R.string.focus_21),
                 color = Palette.TextBody,
                 fontSize = 12.sp,
                 fontWeight = FontWeight.Medium
@@ -323,31 +330,31 @@ private fun AnalysisColumn(incident: IncidentCase?, modifier: Modifier) {
             Spacer(Modifier.height(5.dp))
             Text(
                 text = if (SurgicalSession.appMode == AppMode.DEMO) {
-                    "点击下方「一键演示」，自动完成定位、放大、剖切与建议输出。"
+                    stringResource(R.string.focus_22)
                 } else {
-                    "接入监护仪后，体征越限将自动触发定位、放大、剖切与建议输出。"
+                    stringResource(R.string.focus_23)
                 },
                 color = Palette.TextDim,
                 fontSize = 11.sp
             )
             Spacer(Modifier.height(10.dp))
-            KeyValueRow("运行模式", SurgicalSession.appMode.label)
-            KeyValueRow("推理引擎", SurgicalSession.aiEngine)
-            KeyValueRow("影像断面", "第 ${SurgicalSession.sliceIndex + 1} 层")
+            KeyValueRow(stringResource(R.string.focus_24), SurgicalSession.appMode.label)
+            KeyValueRow(stringResource(R.string.focus_25), SurgicalSession.aiEngine)
+            KeyValueRow(stringResource(R.string.focus_26), stringResource(R.string.focus_36, SurgicalSession.sliceIndex + 1))
             return@Column
         }
 
-        KeyValueRow("事件编码", incident.code, Palette.Red)
-        KeyValueRow("定位", incident.region)
-        KeyValueRow("判断", incident.cause)
-        KeyValueRow("置信度", "${incident.confidence}%", Palette.Mint)
-        KeyValueRow("引擎 / 耗时", "${SurgicalSession.aiEngine} · ${SurgicalSession.aiLatencyMs} ms")
+        KeyValueRow(stringResource(R.string.focus_27), incident.code, Palette.Red)
+        KeyValueRow(stringResource(R.string.focus_28), incident.region)
+        KeyValueRow(stringResource(R.string.focus_29), incident.cause)
+        KeyValueRow(stringResource(R.string.focus_30), "${incident.confidence}%", Palette.Mint)
+        KeyValueRow(stringResource(R.string.focus_31), "${SurgicalSession.aiEngine} · ${SurgicalSession.aiLatencyMs} ms")
         Spacer(Modifier.height(8.dp))
-        SectionLabel("证据", Palette.Cyan)
+        SectionLabel(stringResource(R.string.focus_32), Palette.Cyan)
         Spacer(Modifier.height(4.dp))
         incident.findings.forEach { finding -> FindingRow(finding) }
         Spacer(Modifier.height(8.dp))
-        SectionLabel("处置建议", Palette.Mint)
+        SectionLabel(stringResource(R.string.focus_33), Palette.Mint)
         Spacer(Modifier.height(4.dp))
         incident.actions.forEach { action -> ActionRow(action) }
     }

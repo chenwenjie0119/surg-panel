@@ -5,7 +5,6 @@ import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -24,12 +23,14 @@ import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.drawscope.clipRect
 import androidx.compose.ui.graphics.nativeCanvas
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.cwj.surgpanel.R
 import com.cwj.surgpanel.core.LinkMode
 import com.cwj.surgpanel.core.Modality
 import com.cwj.surgpanel.core.SignalEngine
@@ -62,7 +63,7 @@ fun ImagingPanel() {
     }
 
     PanelFrame(
-        title = "术中影像 · ${modality.label}",
+        title = stringResource(R.string.imaging_12, modality.label),
         tag = "IMAGING",
         accent = Palette.Cyan,
         trailing = {
@@ -86,28 +87,28 @@ fun ImagingPanel() {
                 ChipButton(m.label, modality == m, Palette.Cyan) { SurgicalSession.modality = m }
             }
             Spacer(Modifier.width(6.dp))
-            ChipButton("− 层", false) {
+            ChipButton(stringResource(R.string.imaging_01), false) {
                 SurgicalSession.sliceIndex = (slice - 1).coerceAtLeast(0)
             }
-            ChipButton("＋ 层", false) {
+            ChipButton(stringResource(R.string.imaging_02), false) {
                 SurgicalSession.sliceIndex = (slice + 1).coerceAtMost(95)
             }
-            ChipButton("窗宽 −", false) {
+            ChipButton(stringResource(R.string.imaging_03), false) {
                 SurgicalSession.windowWidth = (ww - 50f).coerceAtLeast(80f)
             }
-            ChipButton("窗宽 ＋", false) {
+            ChipButton(stringResource(R.string.imaging_04), false) {
                 SurgicalSession.windowWidth = (ww + 50f).coerceAtMost(1600f)
             }
-            ChipButton("窗位 −", false) {
+            ChipButton(stringResource(R.string.imaging_05), false) {
                 SurgicalSession.windowLevel = (wl - 10f).coerceAtLeast(-200f)
             }
-            ChipButton("窗位 ＋", false) {
+            ChipButton(stringResource(R.string.imaging_06), false) {
                 SurgicalSession.windowLevel = (wl + 10f).coerceAtMost(300f)
             }
             ChipButton("ROI", SurgicalSession.roiLocked, Palette.Amber) {
                 SurgicalSession.roiLocked = !SurgicalSession.roiLocked
             }
-            ChipButton("缩放", true, Palette.Cyan) {
+            ChipButton(stringResource(R.string.imaging_07), true, Palette.Cyan) {
                 SurgicalSession.imagingZoom = when {
                     zoom < 1.3f -> zoom + 0.15f
                     else -> 1f
@@ -247,7 +248,7 @@ fun ImagingPanel() {
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(10.dp)
         ) {
-            SectionLabel("靶区：胆囊三角", Palette.Cyan)
+            SectionLabel(stringResource(R.string.imaging_08), Palette.Cyan)
             Spacer(Modifier.weight(1f))
             Text(
                 text = SurgicalSession.sliceLabel(),
@@ -258,9 +259,9 @@ fun ImagingPanel() {
             Spacer(Modifier.width(10.dp))
             Text(
                 text = when (SurgicalSession.linkMode) {
-                    LinkMode.FULL -> "全联动 · 切层随手术阶段推进"
-                    LinkMode.FOCUS -> "焦点联动 · 镜像主刀视角"
-                    LinkMode.OFF -> "独立模式"
+                    LinkMode.FULL -> stringResource(R.string.imaging_09)
+                    LinkMode.FOCUS -> stringResource(R.string.imaging_10)
+                    LinkMode.OFF -> stringResource(R.string.imaging_11)
                 },
                 color = Palette.TextDim,
                 fontSize = 11.sp,

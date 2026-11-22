@@ -25,7 +25,6 @@ data class PanelPose(
 ) {
     fun coordText(): String = String.format(java.util.Locale.US, "%.2f / %.2f / %.2f", x, y, z)
 
-    fun distanceText(): String = String.format(java.util.Locale.US, "%.2f m", kotlin.math.sqrt(x * x + y * y + z * z))
 }
 
 /**

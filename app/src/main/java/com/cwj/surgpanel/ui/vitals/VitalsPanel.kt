@@ -23,10 +23,12 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.nativeCanvas
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.cwj.surgpanel.R
 import com.cwj.surgpanel.core.AlarmLevel
 import com.cwj.surgpanel.core.LinkMode
 import com.cwj.surgpanel.core.PerfGovernor
@@ -34,8 +36,8 @@ import com.cwj.surgpanel.core.SignalEngine
 import com.cwj.surgpanel.core.SurgicalSession
 import com.cwj.surgpanel.ui.common.PanelFrame
 import com.cwj.surgpanel.ui.common.StatusDot
-import com.cwj.surgpanel.ui.common.rememberVisualClock
 import com.cwj.surgpanel.ui.common.rememberSmoothFloat
+import com.cwj.surgpanel.ui.common.rememberVisualClock
 import com.cwj.surgpanel.ui.theme.Palette
 import com.pico.spatial.ui.design.Text
 import kotlin.math.roundToInt
@@ -76,7 +78,7 @@ fun VitalsPanel() {
     val etSmooth = rememberSmoothFloat(SurgicalSession.etco2.toFloat(), 0.28f)
 
     PanelFrame(
-        title = "生命体征监护",
+        title = stringResource(R.string.vitals_01),
         tag = "VITALS",
         accent = Palette.Mint,
         trailing = {
@@ -130,9 +132,9 @@ fun VitalsPanel() {
                     modifier = Modifier.fillMaxSize().padding(horizontal = 12.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Text(text = "肝门阻断", color = blockColor, fontSize = 12.sp, fontFamily = FontFamily.Monospace)
+                    Text(text = stringResource(R.string.vitals_02), color = blockColor, fontSize = 12.sp, fontFamily = FontFamily.Monospace)
                     Spacer(Modifier.width(8.dp))
-                    Text(text = "上限 15:00", color = Palette.TextDim, fontSize = 9.sp, fontFamily = FontFamily.Monospace)
+                    Text(text = stringResource(R.string.vitals_03), color = Palette.TextDim, fontSize = 9.sp, fontFamily = FontFamily.Monospace)
                     Spacer(Modifier.weight(1f))
                     Text(
                         text = SurgicalSession.blockadeLabel(),
@@ -152,28 +154,28 @@ fun VitalsPanel() {
             horizontalArrangement = Arrangement.spacedBy(8.dp)
         ) {
             FlowChip(
-                label = if (SurgicalSession.blockadeRunning) "阻断剩余" else "阻断未开始",
+                label = if (SurgicalSession.blockadeRunning) stringResource(R.string.vitals_04) else stringResource(R.string.vitals_05),
                 value = SurgicalSession.blockadeLabel(),
                 accent = blockColor,
                 active = SurgicalSession.blockadeRunning,
                 modifier = Modifier.weight(1.05f)
             )
             FlowChip(
-                label = "估算出血 EBL",
+                label = stringResource(R.string.vitals_06),
                 value = SurgicalSession.eblLabel(),
                 accent = if (SurgicalSession.eblMl >= 400) Palette.Red else Palette.Amber,
                 active = SurgicalSession.eblMl > 0,
                 modifier = Modifier.weight(1f)
             )
             FlowChip(
-                label = "纱布 台上/清点",
+                label = stringResource(R.string.vitals_07),
                 value = "${SurgicalSession.spongeOnField}/${SurgicalSession.spongeCounted}",
                 accent = if (SurgicalSession.countMatched()) Palette.Mint else Palette.Red,
                 active = !SurgicalSession.countMatched(),
                 modifier = Modifier.weight(1f)
             )
             FlowChip(
-                label = "交叉验证",
+                label = stringResource(R.string.vitals_08),
                 value = "${SurgicalSession.fusionHits}/3",
                 accent = when (SurgicalSession.fusionHits) {
                     3 -> Palette.Red
@@ -186,7 +188,7 @@ fun VitalsPanel() {
         }
         Spacer(Modifier.height(4.dp))
         Text(
-            text = "联合判定：${SurgicalSession.fusionDetail}　·　三项同现才红闪急报",
+            text = stringResource(R.string.vitals_10, SurgicalSession.fusionDetail),
             color = Palette.TextDim,
             fontSize = 10.sp
         )
@@ -244,7 +246,7 @@ fun VitalsPanel() {
                 drawLane(1, 2.6f, Palette.Amber, "ART", "mmHg") { p -> SignalEngine.abpPhase(p, hr) }
                 drawLane(2, 2.9f, Palette.Cyan, "SpO₂ Pleth", "%") { p -> SignalEngine.plethPhase(p, hr) }
 
-                // 扫掠光标
+                // 当前采样光标：波形为滚动绘制，最新采样点恒定落在右边缘，所以这条线是静止的
                 val cursorX = w * (0.999f)
                 drawLine(
                     color = Color.White.copy(alpha = 0.10f),
@@ -272,10 +274,10 @@ fun VitalsPanel() {
             ) {
                 Text(
                     text = when (alarm) {
-                        AlarmLevel.NONE -> "血流动力学稳定 · 无告警"
-                        AlarmLevel.NOTICE -> "轻提示：${SurgicalSession.alarmText}（未达联合判定）"
-                        AlarmLevel.WATCH -> "关注：${SurgicalSession.alarmText}"
-                        AlarmLevel.CRITICAL -> "危急：${SurgicalSession.alarmText}"
+                        AlarmLevel.NONE -> stringResource(R.string.vitals_09)
+                        AlarmLevel.NOTICE -> stringResource(R.string.vitals_11, SurgicalSession.alarmText)
+                        AlarmLevel.WATCH -> stringResource(R.string.vitals_12, SurgicalSession.alarmText)
+                        AlarmLevel.CRITICAL -> stringResource(R.string.vitals_13, SurgicalSession.alarmText)
                     },
                     color = if (alarm == AlarmLevel.NONE) Palette.TextBody else alarmColor,
                     fontSize = 11.sp,

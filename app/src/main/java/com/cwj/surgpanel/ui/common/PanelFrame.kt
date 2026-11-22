@@ -19,9 +19,9 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.State
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
@@ -36,10 +36,12 @@ import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.cwj.surgpanel.R
 import com.cwj.surgpanel.core.AlarmLevel
 import com.cwj.surgpanel.core.PerfGovernor
 import com.cwj.surgpanel.core.SurgicalSession
@@ -48,6 +50,11 @@ import com.pico.spatial.ui.design.Text
 import com.pico.spatial.ui.platform.LocalSpatialContainerStateManager
 import kotlin.math.abs
 import kotlin.math.sin
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.launch
 
 /**
  * 统一的医疗面板外框：标题条 + 强调色 + 焦点状态 + 内容区。
@@ -265,35 +272,118 @@ fun SectionLabel(text: String, accent: Color = Palette.Cyan) {
  *
  * 与 [com.cwj.surgpanel.platform.SessionClock] 完全无关：本时钟只驱动画面，
  * 步进使用真实经过时间（不是固定步长），因此降频后动画速度不变，只是采样变粗。
- * 每帧向 [PerfGovernor] 上报耗时用于降级判定，不上报任何业务数据。
+ *
+ * 全进程只有一条帧循环（[VisualClockDriver]）：五个面板共用同一份秒数与同一个帧回调。
+ * 若每个面板各起一条 withFrameNanos 循环，同一帧会被多份回调重复采样——既重复上报帧耗时
+ * （降级判定的平均值被同一帧灌多次），也让帧回调数量随面板数线性膨胀。
+ * 驱动在被引用时启动、无人引用时取消，因此面板全部收起后不残留空转。
  */
 @Composable
 fun rememberVisualClock(active: Boolean = true): State<Float> {
-    val seconds = remember { mutableFloatStateOf(0f) }
-    LaunchedEffect(active) {
-        if (!active) return@LaunchedEffect
-        var prev = 0L
-        var lastEmit = 0L
-        while (true) {
-            withFrameNanos { now ->
-                if (prev != 0L) {
-                    // 多窗共用同一帧号：PerfGovernor 按帧号去重，避免同一帧被重复计入平均耗时
-                    PerfGovernor.reportFrame((now - prev) / 1_000_000f, now)
-                    val intervalMs = PerfGovernor.level.redrawIntervalMs
-                    if (lastEmit == 0L) {
-                        lastEmit = now
-                    } else if ((now - lastEmit) / 1_000_000f >= intervalMs) {
-                        seconds.floatValue += ((now - lastEmit) / 1_000_000_000f).coerceIn(0f, 0.25f)
+    DisposableEffect(active) {
+        if (active) VisualClockDriver.attach()
+        onDispose { if (active) VisualClockDriver.detach() }
+    }
+    return VisualClockDriver.seconds
+}
+
+/**
+ * 订阅全局唯一的帧回调。
+ *
+ * 逐帧动画（拖尾采样、数值平滑等）一律走这里，禁止再各自起 `withFrameNanos` 循环：
+ * 多份循环会让同一帧被多次回调采样，既重复上报帧耗时，也让各面板的动相位互不同步。
+ * 全进程只有 [VisualClockDriver] 内的一条帧循环，所有消费者在这里登记/注销。
+ */
+@Composable
+fun rememberFrameCallback(onFrame: (Long) -> Unit) {
+    val latest by rememberUpdatedState(onFrame)
+    DisposableEffect(Unit) {
+        val listener: (Long) -> Unit = { now -> latest(now) }
+        VisualClockDriver.subscribe(listener)
+        onDispose { VisualClockDriver.unsubscribe(listener) }
+    }
+}
+
+/**
+ * 视觉时钟的唯一驱动。
+ *
+ * 只在主线程调用（组合与 dispose 都在主线程），因此引用计数无需加锁。
+ */
+private object VisualClockDriver {
+
+    val seconds = mutableFloatStateOf(0f)
+
+    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
+    private var job: Job? = null
+    private var users = 0
+
+    /**
+     * 逐帧订阅者。全进程共享同一条帧循环，这里只登记消费端。
+     *
+     * 只在主线程增删（组合与 dispose 都在主线程），因此无需加锁。
+     */
+    private val frameListeners = ArrayList<(Long) -> Unit>(8)
+
+    fun attach() {
+        users++
+        ensureRunning()
+    }
+
+    fun detach() {
+        users = (users - 1).coerceAtLeast(0)
+        stopIfIdle()
+    }
+
+    fun subscribe(listener: (Long) -> Unit) {
+        frameListeners.add(listener)
+        ensureRunning()
+    }
+
+    fun unsubscribe(listener: (Long) -> Unit) {
+        frameListeners.remove(listener)
+        stopIfIdle()
+    }
+
+    private fun stopIfIdle() {
+        if (users > 0 || frameListeners.isNotEmpty()) return
+        job?.cancel()
+        // prev / lastEmit 都是协程内的局部量，重启协程即从 0 开始，
+        // 因此停机期间不会在下次挂载时被误算成一帧的耗时。
+        job = null
+    }
+
+    private fun ensureRunning() {
+        if (job?.isActive == true) return
+        job = scope.launch {
+            var prev = 0L
+            var lastEmit = 0L
+            while (true) {
+                withFrameNanos { now ->
+                    if (prev != 0L) {
+                        // 每帧只上报一次：这是降级判定唯一的帧耗时来源。
+                        // 所有面板共用这一条循环，因此不存在同帧被多份时钟重复上报的问题。
+                        PerfGovernor.reportFrame((now - prev) / 1_000_000f, now)
+                        val intervalMs = PerfGovernor.level.redrawIntervalMs
+                        if (lastEmit == 0L) {
+                            lastEmit = now
+                        } else if ((now - lastEmit) / 1_000_000f >= intervalMs) {
+                            seconds.floatValue +=
+                                ((now - lastEmit) / 1_000_000_000f).coerceIn(0f, 0.25f)
+                            lastEmit = now
+                        }
+                    } else {
                         lastEmit = now
                     }
-                } else {
-                    lastEmit = now
+                    prev = now
+                    // 逐帧消费者统一分发（拖尾采样、数值平滑等），它们不再自建帧循环
+                    if (frameListeners.isNotEmpty()) {
+                        val snapshot = frameListeners.toTypedArray()
+                        snapshot.forEach { it(now) }
+                    }
                 }
-                prev = now
             }
         }
     }
-    return seconds
 }
 
 /**
@@ -306,31 +396,10 @@ fun rememberVisualClock(active: Boolean = true): State<Float> {
 fun rememberSmoothFloat(target: Float, factor: Float = 0.18f): Float {
     val latest by rememberUpdatedState(target)
     var value by remember { mutableFloatStateOf(target) }
-    LaunchedEffect(Unit) {
-        while (true) {
-            withFrameNanos {
-                val goal = latest
-                val delta = goal - value
-                value = if (abs(delta) < 0.01f) goal else value + delta * factor
-            }
-        }
-    }
-    return value
-}
-
-/** [rememberSmoothFloat] 的整数版本。 */
-@Composable
-fun rememberSmoothInt(target: Int, factor: Float = 0.18f): Float {
-    val latest by rememberUpdatedState(target)
-    var value by remember { mutableFloatStateOf(target.toFloat()) }
-    LaunchedEffect(Unit) {
-        while (true) {
-            withFrameNanos {
-                val goal = latest.toFloat()
-                val delta = goal - value
-                value = if (abs(delta) < 0.01f) goal else value + delta * factor
-            }
-        }
+    rememberFrameCallback {
+        val goal = latest
+        val delta = goal - value
+        value = if (abs(delta) < 0.01f) goal else value + delta * factor
     }
     return value
 }
@@ -373,7 +442,7 @@ fun MicButton(
         }
         Spacer(Modifier.width(6.dp))
         Text(
-            text = if (listening) "聆听中" else "MIC",
+            text = if (listening) stringResource(R.string.panel_01) else "MIC",
             color = tint,
             fontSize = 11.sp,
             fontFamily = FontFamily.Monospace

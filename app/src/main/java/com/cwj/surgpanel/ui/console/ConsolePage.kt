@@ -24,12 +24,14 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.cwj.surgpanel.FOCUS_ID
 import com.cwj.surgpanel.IMAGING_ID
+import com.cwj.surgpanel.R
 import com.cwj.surgpanel.RECORD_ID
 import com.cwj.surgpanel.SCOPE_ID
 import com.cwj.surgpanel.VITALS_ID
@@ -49,9 +51,9 @@ import com.cwj.surgpanel.platform.GazePinchController
 import com.cwj.surgpanel.platform.SurgicalAudio
 import com.cwj.surgpanel.platform.VoiceInput
 import com.cwj.surgpanel.ui.common.ChipButton
+import com.cwj.surgpanel.ui.common.CoordStack
 import com.cwj.surgpanel.ui.common.KeyValueRow
 import com.cwj.surgpanel.ui.common.MicButton
-import com.cwj.surgpanel.ui.common.CoordStack
 import com.cwj.surgpanel.ui.common.MiniRadar
 import com.cwj.surgpanel.ui.common.NarrationBlock
 import com.cwj.surgpanel.ui.common.PanelFrame
@@ -74,6 +76,21 @@ private const val MIC_REQUEST = 4101
  */
 @Composable
 fun ConsolePage() {
+    // 回调/绘制 lambda 不是 @Composable 上下文，改用 Context 资源取带参文案
+    val res = LocalContext.current.resources
+
+    // 点击/语音回调不是 @Composable 上下文，文案在此取出后传入
+    val text_console_01 = stringResource(R.string.console_01)
+    // 点击/语音回调不是 @Composable 上下文，文案在此取出后传入
+    val text_console_13 = stringResource(R.string.console_13)
+    // 点击/语音回调不是 @Composable 上下文，文案在此取出后传入
+    val text_console_21 = stringResource(R.string.console_21)
+    // 点击/语音回调不是 @Composable 上下文，文案在此取出后传入
+    val text_console_28 = stringResource(R.string.console_28)
+    // 点击/语音回调不是 @Composable 上下文，文案在此取出后传入
+    val text_console_30 = stringResource(R.string.console_30)
+    // 点击/语音回调不是 @Composable 上下文，文案在此取出后传入
+    val text_console_31 = stringResource(R.string.console_31)
     val navigator = LocalSpatialNavigator.current
     val context = LocalContext.current
     var opened by remember { mutableStateOf(setOf(IMAGING_ID, VITALS_ID, SCOPE_ID)) }
@@ -144,7 +161,7 @@ fun ConsolePage() {
         }
         VoiceInput.listen(
             context = context,
-            onText = { VoiceCommandRouter.handle(it, "麦克风") },
+            onText = { VoiceCommandRouter.handle(it, text_console_01) },
             onStatus = { VoiceCommandRouter.note(it) }
         )
     }
@@ -160,7 +177,7 @@ fun ConsolePage() {
     }
 
     PanelFrame(
-        title = "手术指挥台 · OR-03",
+        title = stringResource(R.string.console_02),
         tag = SurgicalSession.CASE_NO,
         accent = Palette.Cyan,
         trailing = {
@@ -190,7 +207,7 @@ fun ConsolePage() {
                     modifier = Modifier.fillMaxWidth(),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    SectionLabel("运行模式")
+                    SectionLabel(stringResource(R.string.console_03))
                     Spacer(Modifier.weight(1f))
                     AppMode.values().forEach { mode ->
                         ChipButton(
@@ -200,7 +217,7 @@ fun ConsolePage() {
                         ) {
                             if (SurgicalSession.appMode != mode) {
                                 SurgicalSession.appMode = mode
-                                SurgicalSession.log("运行模式：${mode.label}")
+                                SurgicalSession.log(res.getString(R.string.console_54, mode.label))
                                 if (mode == AppMode.DEMO) AiController.onResolved()
                             }
                         }
@@ -215,42 +232,42 @@ fun ConsolePage() {
                 )
                 Spacer(Modifier.height(9.dp))
                 PrimaryButton(
-                    title = "一键演示 · 术中意外应急处置",
+                    title = stringResource(R.string.console_04),
                     subtitle = if (SurgicalSession.appMode == AppMode.DEMO) {
-                        "点击后自动定位病灶、虚拟放大、剖切并输出处置建议"
+                        stringResource(R.string.console_05)
                     } else {
-                        "产品模式下由监护数据越限自动触发，此处用于现场手动复核"
+                        stringResource(R.string.console_06)
                     },
                     accent = Palette.Red
                 ) { AiController.triggerDemo() }
                 Spacer(Modifier.height(7.dp))
                 Text(
                     text = when {
-                        SurgicalSession.aiRunning -> "智能分析执行中 · ${SurgicalSession.focusStage.label}"
-                        incident != null -> "事件 ${incident.code} · ${incident.region}"
-                        else -> "智能分析待命 · 引擎 ${AiGateway.engineLabel()}"
+                        SurgicalSession.aiRunning -> stringResource(R.string.console_55, SurgicalSession.focusStage.label)
+                        incident != null -> stringResource(R.string.console_56, incident.code, incident.region)
+                        else -> stringResource(R.string.console_57, AiGateway.engineLabel())
                     },
                     color = if (incident != null) Palette.Red else Palette.TextDim,
                     fontSize = 11.sp
                 )
 
                 Spacer(Modifier.height(14.dp))
-                SectionLabel("空间窗口 · 可拖拽 / 缩放 / 吸附")
+                SectionLabel(stringResource(R.string.console_07))
                 Spacer(Modifier.height(8.dp))
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    ChipButton("影像窗", IMAGING_ID in opened, Palette.Cyan) { switchWindow(IMAGING_ID) }
-                    ChipButton("体征窗", VITALS_ID in opened, Palette.Mint) { switchWindow(VITALS_ID) }
-                    ChipButton("内窥镜", SCOPE_ID in opened, Palette.Violet) { switchWindow(SCOPE_ID) }
-                    ChipButton("聚焦窗", FOCUS_ID in opened, Palette.Red) { switchWindow(FOCUS_ID) }
-                    ChipButton("病历窗", SurgicalSession.recordOpen, Palette.Cyan) {
+                    ChipButton(stringResource(R.string.console_08), IMAGING_ID in opened, Palette.Cyan) { switchWindow(IMAGING_ID) }
+                    ChipButton(stringResource(R.string.console_09), VITALS_ID in opened, Palette.Mint) { switchWindow(VITALS_ID) }
+                    ChipButton(stringResource(R.string.console_10), SCOPE_ID in opened, Palette.Violet) { switchWindow(SCOPE_ID) }
+                    ChipButton(stringResource(R.string.console_11), FOCUS_ID in opened, Palette.Red) { switchWindow(FOCUS_ID) }
+                    ChipButton(stringResource(R.string.console_12), SurgicalSession.recordOpen, Palette.Cyan) {
                         VoiceCommandRouter.handle(
                             if (SurgicalSession.recordOpen) VoiceIntent.CLOSE_RECORD.sample
                             else VoiceIntent.OPEN_RECORD.sample,
-                            "控制台"
+                            text_console_13
                         )
                     }
                     ChipButton(
-                        label = "全部展开",
+                        label = stringResource(R.string.console_14),
                         active = false,
                         accent = Palette.TextBody
                     ) {
@@ -261,13 +278,13 @@ fun ConsolePage() {
                 }
 
                 Spacer(Modifier.height(14.dp))
-                SectionLabel("联动策略")
+                SectionLabel(stringResource(R.string.console_15))
                 Spacer(Modifier.height(8.dp))
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     LinkMode.values().forEach { mode ->
                         ChipButton(mode.label, SurgicalSession.linkMode == mode) {
                             SurgicalSession.linkMode = mode
-                            SurgicalSession.log("联动切换：${mode.label}")
+                            SurgicalSession.log(res.getString(R.string.console_58, mode.label))
                         }
                     }
                 }
@@ -279,7 +296,7 @@ fun ConsolePage() {
                 )
 
                 Spacer(Modifier.height(14.dp))
-                SectionLabel("影像窗共享参数")
+                SectionLabel(stringResource(R.string.console_16))
                 Spacer(Modifier.height(8.dp))
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     Modality.values().forEach { m ->
@@ -287,19 +304,19 @@ fun ConsolePage() {
                             SurgicalSession.modality = m
                         }
                     }
-                    ChipButton("切层 -5", false, Palette.TextBody) {
+                    ChipButton(stringResource(R.string.console_17), false, Palette.TextBody) {
                         SurgicalSession.sliceIndex = (SurgicalSession.sliceIndex - 5).coerceAtLeast(0)
                     }
-                    ChipButton("切层 +5", false, Palette.TextBody) {
+                    ChipButton(stringResource(R.string.console_18), false, Palette.TextBody) {
                         SurgicalSession.sliceIndex = (SurgicalSession.sliceIndex + 5).coerceAtMost(95)
                     }
-                    ChipButton("ROI 锁定", SurgicalSession.roiLocked, Palette.Amber) {
+                    ChipButton(stringResource(R.string.console_19), SurgicalSession.roiLocked, Palette.Amber) {
                         SurgicalSession.roiLocked = !SurgicalSession.roiLocked
                     }
                 }
 
                 Spacer(Modifier.height(14.dp))
-                SectionLabel("语音指令 · 术者免手操作", Palette.Red)
+                SectionLabel(stringResource(R.string.console_20), Palette.Red)
                 Spacer(Modifier.height(8.dp))
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     MicButton(listening = VoiceInput.busy) { startVoice() }
@@ -313,7 +330,7 @@ fun ConsolePage() {
                                 active = VoiceCommandRouter.lastText.contains(intent.sample),
                                 accent = Palette.Red
                             ) {
-                                VoiceCommandRouter.handle(intent.sample, "口令面板")
+                                VoiceCommandRouter.handle(intent.sample, text_console_21)
                                 SurgicalAudio.confirm()
                             }
                             Spacer(Modifier.width(6.dp))
@@ -326,7 +343,7 @@ fun ConsolePage() {
                     Spacer(Modifier.width(10.dp))
                     // 音效总开关：只影响听觉提示，关掉后监护判定与告警等级依然照常运行
                     ChipButton(
-                        label = if (SurgicalAudio.enabled) "音效 开" else "音效 关",
+                        label = if (SurgicalAudio.enabled) stringResource(R.string.console_22) else stringResource(R.string.console_23),
                         active = SurgicalAudio.enabled,
                         accent = Palette.Mint
                     ) {
@@ -335,13 +352,13 @@ fun ConsolePage() {
                 }
                 Spacer(Modifier.height(5.dp))
                 Text(
-                    text = "说「${VoiceIntent.OPEN_RECORD.sample}」→ 空间内展开病历面板；说「关闭」→ 收起，全程零接触",
+                    text = stringResource(R.string.console_59, VoiceIntent.OPEN_RECORD.sample),
                     color = Palette.TextDim,
                     fontSize = 11.sp
                 )
                 Spacer(Modifier.height(3.dp))
                 Text(
-                    text = "说「开始阻断」→ 15 min 倒计时；说「结束阻断」→ 归档阻断时长；说「同步教学端」→ 推送主刀视角",
+                    text = stringResource(R.string.console_24),
                     color = Palette.TextDim,
                     fontSize = 11.sp
                 )
@@ -357,47 +374,47 @@ fun ConsolePage() {
                 )
                 Spacer(Modifier.height(3.dp))
                 Text(
-                    text = "音频 · ${SurgicalAudio.statusNote}",
+                    text = stringResource(R.string.console_60, SurgicalAudio.statusNote),
                     color = if (SurgicalAudio.ready) Palette.TextBody else Palette.Amber,
                     fontSize = 10.sp,
                     fontFamily = FontFamily.Monospace
                 )
 
                 Spacer(Modifier.height(14.dp))
-                SectionLabel("事件演示")
+                SectionLabel(stringResource(R.string.console_25))
                 Spacer(Modifier.height(8.dp))
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     ChipButton(
-                        label = if (SurgicalSession.blockadeRunning) "结束阻断" else "开始阻断",
+                        label = if (SurgicalSession.blockadeRunning) stringResource(R.string.console_26) else stringResource(R.string.console_27),
                         active = SurgicalSession.blockadeRunning,
                         accent = Palette.Amber
                     ) {
                         VoiceCommandRouter.handle(
                             if (SurgicalSession.blockadeRunning) VoiceIntent.STOP_BLOCKADE.sample
                             else VoiceIntent.START_BLOCKADE.sample,
-                            "控制台"
+                            text_console_28
                         )
                     }
-                    ChipButton("诱发术野渗血", SurgicalSession.manualBleed, Palette.Red) {
+                    ChipButton(stringResource(R.string.console_29), SurgicalSession.manualBleed, Palette.Red) {
                         SurgicalSession.manualBleed = !SurgicalSession.manualBleed
                         SurgicalSession.log(
-                            if (SurgicalSession.manualBleed) "演示注入：术野渗血事件" else "演示结束：渗血已控制",
+                            if (SurgicalSession.manualBleed) text_console_30 else text_console_31,
                             critical = SurgicalSession.manualBleed
                         )
                     }
-                    ChipButton("时间轴复位", false, Palette.TextBody) {
+                    ChipButton(stringResource(R.string.console_32), false, Palette.TextBody) {
                         SurgicalSession.elapsedSec = 0
                         SurgicalSession.manualBleed = false
                         AiController.onResolved()
-                        SurgicalSession.log("演示复位：时间轴归零")
+                        SurgicalSession.log(res.getString(R.string.console_62))
                     }
                 }
 
                 Spacer(Modifier.height(14.dp))
-                SectionLabel("手术阶段")
+                SectionLabel(stringResource(R.string.console_33))
                 Spacer(Modifier.height(8.dp))
                 Text(
-                    text = "${SurgicalSession.phase.label}　·　已进行 ${SurgicalSession.clock()}",
+                    text = stringResource(R.string.console_61, SurgicalSession.phase.label, SurgicalSession.clock()),
                     color = Palette.TextPrimary,
                     fontSize = 13.sp
                 )
@@ -424,27 +441,27 @@ fun ConsolePage() {
 
             // ---------- 右栏：患者与事件 ----------
             Column(Modifier.weight(1f)) {
-                SectionLabel("患者与术式", Palette.Mint)
+                SectionLabel(stringResource(R.string.console_34), Palette.Mint)
                 Spacer(Modifier.height(8.dp))
-                KeyValueRow("患者", SurgicalSession.PATIENT)
-                KeyValueRow("术式", SurgicalSession.PROCEDURE)
-                KeyValueRow("入路", "腹腔镜 4 孔")
-                KeyValueRow("麻醉", "全麻 · 已插管")
+                KeyValueRow(stringResource(R.string.console_35), SurgicalSession.PATIENT)
+                KeyValueRow(stringResource(R.string.console_36), SurgicalSession.PROCEDURE)
+                KeyValueRow(stringResource(R.string.console_37), stringResource(R.string.console_38))
+                KeyValueRow(stringResource(R.string.console_39), stringResource(R.string.console_40))
                 KeyValueRow(
-                    "当前切片",
+                    stringResource(R.string.console_41),
                     "${SurgicalSession.modality.label} #${SurgicalSession.sliceIndex + 1}",
                     Palette.Cyan
                 )
 
                 Spacer(Modifier.height(10.dp))
-                SectionLabel("仪器与接口", Palette.Cyan)
+                SectionLabel(stringResource(R.string.console_42), Palette.Cyan)
                 Spacer(Modifier.height(6.dp))
-                KeyValueRow("监护仪", InstrumentRegistry.vitalsLabel())
-                KeyValueRow("影像源", InstrumentRegistry.imagingLabel())
-                KeyValueRow("内窥镜", InstrumentRegistry.endoscopeLabel())
+                KeyValueRow(stringResource(R.string.console_43), InstrumentRegistry.vitalsLabel())
+                KeyValueRow(stringResource(R.string.console_44), InstrumentRegistry.imagingLabel())
+                KeyValueRow(stringResource(R.string.console_45), InstrumentRegistry.endoscopeLabel())
                 KeyValueRow(
-                    "推理服务",
-                    if (AiGateway.remoteConfigured) AiGateway.endpoint else "未配置 · 本地规则引擎",
+                    stringResource(R.string.console_46),
+                    if (AiGateway.remoteConfigured) AiGateway.endpoint else stringResource(R.string.console_47),
                     if (AiGateway.remoteConfigured) Palette.Mint else Palette.TextBody
                 )
 
@@ -453,12 +470,12 @@ fun ConsolePage() {
                     MiniRadar(Modifier.width(116.dp), diameter = 104.dp)
                     Spacer(Modifier.width(10.dp))
                     Column {
-                        SectionLabel("空间缩略雷达 · 五窗绝对坐标", Palette.Cyan)
+                        SectionLabel(stringResource(R.string.console_48), Palette.Cyan)
                         Spacer(Modifier.height(5.dp))
                         CoordStack(fontSize = 8)
                         Spacer(Modifier.height(3.dp))
                         Text(
-                            text = "俯视投影 · 原点为指挥台 · 单位 m",
+                            text = stringResource(R.string.console_49),
                             color = Palette.TextDim,
                             fontSize = 9.sp
                         )
@@ -466,12 +483,12 @@ fun ConsolePage() {
                 }
 
                 Spacer(Modifier.height(10.dp))
-                SectionLabel("智能建议 · 流式输出", Palette.Amber)
+                SectionLabel(stringResource(R.string.console_50), Palette.Amber)
                 Spacer(Modifier.height(6.dp))
                 NarrationBlock(accent = Palette.Amber, visibleLines = 2, fixedHeight = 62)
 
                 Spacer(Modifier.height(10.dp))
-                SectionLabel("视觉预算 · 核心时钟独立", Palette.Mint)
+                SectionLabel(stringResource(R.string.console_51), Palette.Mint)
                 Spacer(Modifier.height(6.dp))
                 Text(
                     text = PerfGovernor.statusText(),
@@ -481,13 +498,13 @@ fun ConsolePage() {
                 )
                 Spacer(Modifier.height(2.dp))
                 Text(
-                    text = "降级仅作用于 Canvas 重绘与波形采样；100 ms 心跳与告警判定恒定满速",
+                    text = stringResource(R.string.console_52),
                     color = Palette.TextDim,
                     fontSize = 10.sp
                 )
 
                 Spacer(Modifier.height(12.dp))
-                SectionLabel("实时事件流", Palette.Amber)
+                SectionLabel(stringResource(R.string.console_53), Palette.Amber)
                 Spacer(Modifier.height(8.dp))
                 Column {
                     SurgicalSession.events.take(3).forEach { event ->

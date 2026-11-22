@@ -1,3 +1,178 @@
+<?xml version="1.0" encoding="utf-8"?>
 <resources>
+    <!-- 界面文案（默认中文）。键名「面板_序号」按面板分组，新增语种只需建 values-xx 同名键。 -->
     <string name="app_name">空间手术面板</string>
+
+    <!-- console -->
+    <string name="console_01">麦克风</string>
+    <string name="console_02">手术指挥台 · OR-03</string>
+    <string name="console_03">运行模式</string>
+    <string name="console_04">一键演示 · 术中意外应急处置</string>
+    <string name="console_05">点击后自动定位病灶、虚拟放大、剖切并输出处置建议</string>
+    <string name="console_06">产品模式下由监护数据越限自动触发，此处用于现场手动复核</string>
+    <string name="console_07">空间窗口 · 可拖拽 / 缩放 / 吸附</string>
+    <string name="console_08">影像窗</string>
+    <string name="console_09">体征窗</string>
+    <string name="console_10">内窥镜</string>
+    <string name="console_11">聚焦窗</string>
+    <string name="console_12">病历窗</string>
+    <string name="console_13">控制台</string>
+    <string name="console_14">全部展开</string>
+    <string name="console_15">联动策略</string>
+    <string name="console_16">影像窗共享参数</string>
+    <string name="console_17">切层 -5</string>
+    <string name="console_18">切层 +5</string>
+    <string name="console_19">ROI 锁定</string>
+    <string name="console_20">语音指令 · 术者免手操作</string>
+    <string name="console_21">口令面板</string>
+    <string name="console_22">音效 开</string>
+    <string name="console_23">音效 关</string>
+    <string name="console_24">说「开始阻断」→ 15 min 倒计时；说「结束阻断」→ 归档阻断时长；说「同步教学端」→ 推送主刀视角</string>
+    <string name="console_25">事件演示</string>
+    <string name="console_26">结束阻断</string>
+    <string name="console_27">开始阻断</string>
+    <string name="console_28">控制台</string>
+    <string name="console_29">诱发术野渗血</string>
+    <string name="console_30">演示注入：术野渗血事件</string>
+    <string name="console_31">演示结束：渗血已控制</string>
+    <string name="console_32">时间轴复位</string>
+    <string name="console_33">手术阶段</string>
+    <string name="console_34">患者与术式</string>
+    <string name="console_35">患者</string>
+    <string name="console_36">术式</string>
+    <string name="console_37">入路</string>
+    <string name="console_38">腹腔镜 4 孔</string>
+    <string name="console_39">麻醉</string>
+    <string name="console_40">全麻 · 已插管</string>
+    <string name="console_41">当前切片</string>
+    <string name="console_42">仪器与接口</string>
+    <string name="console_43">监护仪</string>
+    <string name="console_44">影像源</string>
+    <string name="console_45">内窥镜</string>
+    <string name="console_46">推理服务</string>
+    <string name="console_47">未配置 · 本地规则引擎</string>
+    <string name="console_48">空间缩略雷达 · 五窗绝对坐标</string>
+    <string name="console_49">俯视投影 · 原点为指挥台 · 单位 m</string>
+    <string name="console_50">智能建议 · 流式输出</string>
+    <string name="console_51">视觉预算 · 核心时钟独立</string>
+    <string name="console_52">降级仅作用于 Canvas 重绘与波形采样；100 ms 心跳与告警判定恒定满速</string>
+    <string name="console_53">实时事件流</string>
+
+    <!-- focus -->
+    <string name="focus_01">捏合确认</string>
+    <string name="focus_02">智能异常处置 · 病灶聚焦</string>
+    <string name="focus_03">一键演示 · 术中意外</string>
+    <string name="focus_04">手动触发分析</string>
+    <string name="focus_05">处置已确认</string>
+    <string name="focus_06">捏合确认处置</string>
+    <string name="focus_07">点击确认</string>
+    <string name="focus_08">处置序列已下发，事件保持展开直至收起</string>
+    <string name="focus_09">单次演示约 16 s 后自动回稳，可重复触发</string>
+    <string name="focus_10">产品模式下监护数据越限将自动触发本链路</string>
+    <string name="focus_11">收起事件</string>
+    <string name="focus_12">眼动通道初始化中</string>
+    <string name="focus_13">注视本窗 0.8 s 锁定</string>
+    <string name="focus_14">处置序列已确认</string>
+    <string name="focus_15">锁定后捏合手指确认处置</string>
+    <string name="focus_16">等待异常事件</string>
+    <string name="focus_17">剖切面 · 内部结构已展开</string>
+    <string name="focus_18">断面扫描定位中</string>
+    <string name="focus_19">链路待命</string>
+    <string name="focus_20">智能分析</string>
+    <string name="focus_21">暂无异常事件</string>
+    <string name="focus_22">点击下方「一键演示」，自动完成定位、放大、剖切与建议输出。</string>
+    <string name="focus_23">接入监护仪后，体征越限将自动触发定位、放大、剖切与建议输出。</string>
+    <string name="focus_24">运行模式</string>
+    <string name="focus_25">推理引擎</string>
+    <string name="focus_26">影像断面</string>
+    <string name="focus_27">事件编码</string>
+    <string name="focus_28">定位</string>
+    <string name="focus_29">判断</string>
+    <string name="focus_30">置信度</string>
+    <string name="focus_31">引擎 / 耗时</string>
+    <string name="focus_32">证据</string>
+    <string name="focus_33">处置建议</string>
+
+    <!-- record -->
+    <string name="record_01">语音关闭</string>
+    <string name="record_02">关闭</string>
+    <string name="record_03">病历面板</string>
+    <string name="record_04">调阅条目 · 注视即切换</string>
+    <string name="record_05">无菌</string>
+    <string name="record_06">注视即读 · 说「关闭」即退 · 全程无需触碰任何物品</string>
+
+    <!-- scope -->
+    <string name="scope_01">主刀视野 · 内窥镜</string>
+    <string name="scope_04">视野控制</string>
+    <string name="scope_05">放大 −</string>
+    <string name="scope_06">放大 ＋</string>
+    <string name="scope_07">白光</string>
+    <string name="scope_08">荧光</string>
+    <string name="scope_09">录制</string>
+    <string name="scope_10">同步教学端</string>
+    <string name="scope_11">面板</string>
+    <string name="scope_12">独立视图</string>
+    <string name="scope_13">联动 · 与影像 ROI 同步</string>
+
+    <!-- vitals -->
+    <string name="vitals_01">生命体征监护</string>
+    <string name="vitals_02">肝门阻断</string>
+    <string name="vitals_03">上限 15:00</string>
+    <string name="vitals_04">阻断剩余</string>
+    <string name="vitals_05">阻断未开始</string>
+    <string name="vitals_06">估算出血 EBL</string>
+    <string name="vitals_07">纱布 台上/清点</string>
+    <string name="vitals_08">交叉验证</string>
+    <string name="vitals_09">血流动力学稳定 · 无告警</string>
+
+    <!-- imaging -->
+    <string name="imaging_01">− 层</string>
+    <string name="imaging_02">＋ 层</string>
+    <string name="imaging_03">窗宽 −</string>
+    <string name="imaging_04">窗宽 ＋</string>
+    <string name="imaging_05">窗位 −</string>
+    <string name="imaging_06">窗位 ＋</string>
+    <string name="imaging_07">缩放</string>
+    <string name="imaging_08">靶区：胆囊三角</string>
+    <string name="imaging_09">全联动 · 切层随手术阶段推进</string>
+    <string name="imaging_10">焦点联动 · 镜像主刀视角</string>
+    <string name="imaging_11">独立模式</string>
+
+    <!-- narration -->
+    <string name="narration_01">推理输出中</string>
+    <string name="narration_02">推理通道待命</string>
+    <string name="narration_03">触发异常后，此处按字逐行输出分析结论。</string>
+
+    <!-- 带参文案：占位符 %N$s 对应调用处依次传入的参数 -->
+    <string name="console_54">运行模式：%1$s</string>
+    <string name="console_55">智能分析执行中 · %1$s</string>
+    <string name="console_56">事件 %1$s · %2$s</string>
+    <string name="console_57">智能分析待命 · 引擎 %1$s</string>
+    <string name="console_58">联动切换：%1$s</string>
+    <string name="console_59">说「%1$s」→ 空间内展开病历面板；说「关闭」→ 收起，全程零接触</string>
+    <string name="console_60">音频 · %1$s</string>
+    <string name="console_61">%1$s　·　已进行 %2$s</string>
+    <string name="focus_34">视线驻留 %1$s%%</string>
+    <string name="focus_35">病灶区放大 %1$s%%</string>
+    <string name="focus_36">第 %1$s 层</string>
+    <string name="vitals_10">联合判定：%1$s　·　三项同现才红闪急报</string>
+    <string name="vitals_11">轻提示：%1$s（未达联合判定）</string>
+    <string name="vitals_12">关注：%1$s</string>
+    <string name="vitals_13">危急：%1$s</string>
+    <string name="imaging_12">术中影像 · %1$s</string>
+    <string name="scope_14">GAZE ▸ 教学端 %1$s 端</string>
+    <string name="record_07">无接触病历调阅 · %1$s</string>
+    <string name="record_08">调阅切换：%1$s</string>
+    <string name="record_09">%1$s · 关键结论</string>
+
+    <!-- 面板通用 -->
+    <string name="panel_01">聆听中</string>
+
+    <!-- 内窥镜叠加标注（Canvas 绘制） -->
+    <string name="scope_15">30° 镜  ·  %1$.2fx</string>
+    <string name="scope_16">近红外 800nm  ·  增益 42%</string>
+    <string name="scope_17">白光  ·  光斑 42%</string>
+    <string name="scope_18">渗出 %1$.2f</string>
+    <string name="console_62">演示复位：时间轴归零</string>
+    <string name="scope_19">教学同步：已断开</string>
 </resources>

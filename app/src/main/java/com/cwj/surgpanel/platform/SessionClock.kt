@@ -21,6 +21,12 @@ import kotlin.math.sin
  */
 object SessionClock {
 
+    /** 心跳步长：100 ms。会话时间轴与亚秒相位都以它为唯一单位。 */
+    private const val STEP_MS = 100L
+
+    /** 允许的最大迟滞：超过 5 拍则放弃补偿、重新对齐，避免积压拍数一次性补跑。 */
+    private const val SLACK_NS = 5 * 100 * 1_000_000L
+
     private const val BLEED_START = 40
     private const val BLEED_END = 68
     private const val CYCLE = 140
@@ -44,29 +50,86 @@ object SessionClock {
     /** 三联条件连续成立的拍数，用于 1.5 s 确认消抖。 */
     private var fusionHold = 0
 
+    /** 主线程投递口：节拍状态统一由主线程落盘。 */
+    private val mainHandler by lazy { android.os.Handler(android.os.Looper.getMainLooper()) }
+
     /** 上一次的渗血状态，用于边沿检测（一块纱布只记一次）。 */
     private var lastBleeding = false
 
     /** NOTICE 条件连续未命中的拍数，用于 1.5 s 退出消抖。 */
     private var noticeQuiet = 0
 
+    /** 每秒拍数：拍号与秒的换算基准（100 ms 一拍即 10 拍/秒）。 */
+    private const val TICKS_PER_SEC = 1000L / STEP_MS
+
+    /** 当前拍号。会话时间轴 = 拍号 × [STEP_MS]，暂停期间冻结不推进。 */
+    @Volatile
+    private var tickIndex = 0L
+
     fun start() {
         if (started) return
         started = true
         Thread({
-            var tick = 0
+            // 以单调时钟为唯一时基：第 n 拍的目标时刻 = 锚点 + n × STEP_MS，绝对时刻对齐，
+            // 单拍内的计算耗时被自动扣除，不会像 Thread.sleep(100) 那样逐拍累积漂移。
+            // 会话时间轴只由「本线程已经推进过的拍号」决定，与墙钟彻底解耦。
+            var anchorNanos = System.nanoTime()
+            var writtenSec = SurgicalSession.elapsedSec
+            tickIndex = writtenSec.coerceAtLeast(0).toLong() * TICKS_PER_SEC
             while (true) {
-                Thread.sleep(100)
-                tick++
-                if (!SurgicalSession.running) continue
-                if (tick % 10 == 0) SurgicalSession.elapsedSec += 1
-                update(tick)
+                if (!SurgicalSession.running) {
+                    // 暂停：拍号不再推进，会话时间轴停滞，绝对时刻锚点随之冻结。
+                    // 这里必须让出一整个步长再回到循环开头——若直接 continue，
+                    // 下一轮的等待量为 0，循环会退化成满核空转，暂停期间白白烧 CPU。
+                    anchorNanos = System.nanoTime()
+                    writtenSec = SurgicalSession.elapsedSec
+                    tickIndex = writtenSec.coerceAtLeast(0).toLong() * TICKS_PER_SEC
+                    try {
+                        Thread.sleep(STEP_MS)
+                    } catch (_: InterruptedException) {
+                        return@Thread
+                    }
+                    continue
+                }
+                // 外部复位/跳转（如「时间轴复位」把 elapsedSec 清零）时，以外部值为新基准，
+                // 同时重建绝对时刻锚点，避免沿用过期的相位
+                if (SurgicalSession.elapsedSec != writtenSec) {
+                    tickIndex = SurgicalSession.elapsedSec.coerceAtLeast(0).toLong() * TICKS_PER_SEC
+                    anchorNanos = System.nanoTime()
+                }
+                // 绝对时刻对齐：下一拍必须落在「锚点 + 整数拍」的网格上，误差不逐拍累积
+                val targetNanos = anchorNanos + (tickIndex + 1) * STEP_MS * 1_000_000L
+                val waitMs = (targetNanos - System.nanoTime()) / 1_000_000L
+                try {
+                    // 先睡到网格点前 1 ms，尾巴用自旋收口：Thread.sleep 的实际精度可达数毫秒，
+                    // 只靠它会逐拍晚到，峰值抖动就会表现为动画与数字不同步
+                    if (waitMs > 1L) Thread.sleep(waitMs - 1L)
+                    while (System.nanoTime() < targetNanos) Thread.yield()
+                } catch (_: InterruptedException) {
+                    return@Thread
+                }
+                // 长卡顿（系统休眠、GC）后不补跑积压的拍，直接把锚点重设到当前时刻，避免瞬间刷出几十拍
+                if (System.nanoTime() - targetNanos > SLACK_NS) {
+                    anchorNanos = System.nanoTime() - tickIndex * STEP_MS * 1_000_000L
+                }
+                tickIndex++
+                val virtualMs = tickIndex * STEP_MS
+                val sec = (virtualMs / 1000L).toInt()
+                // 亚秒相位直接由拍号推出（0..9），恢复后从断点继续，不再依赖线程唤醒次数
+                val phase = ((virtualMs % 1000L) / STEP_MS).toInt()
+                writtenSec = sec
+                // 节拍由本线程的单调时钟保证；状态写入整体投递到主线程执行，
+                // 满足「Compose 状态只在主线程改」的约束。
+                mainHandler.post {
+                    SurgicalSession.elapsedSec = sec
+                    update(phase)
+                }
             }
         }, "surgical-clock").apply { isDaemon = true }.start()
     }
 
     private fun update(tick: Int) {
-        val t = SurgicalSession.elapsedSec.toFloat() + (tick % 10) / 10f
+        val t = SurgicalSession.elapsedSec.toFloat() + tick / 10f
 
         // 产品模式优先使用仪器源
         val external = if (SurgicalSession.appMode == AppMode.PRODUCT) {

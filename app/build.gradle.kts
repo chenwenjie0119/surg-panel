@@ -1,8 +1,18 @@
+import java.util.Properties
+
 plugins {
     alias(libs.plugins.android.application)
     alias(libs.plugins.kotlin.android)
     alias(libs.plugins.compose.compiler)
 }
+
+// 本地签名信息（仅存在于 local.properties，已被 .gitignore 排除，不随源码/交付包分发）
+val localProps = Properties().apply {
+    val f = rootProject.file("local.properties")
+    if (f.exists()) f.inputStream().use { load(it) }
+}
+val releaseStorePath = localProps.getProperty("RELEASE_STORE_FILE")
+val hasReleaseSigning = !releaseStorePath.isNullOrBlank() && file(releaseStorePath).exists()
 
 android {
     namespace = "com.cwj.surgpanel"
@@ -10,13 +20,28 @@ android {
 
     defaultConfig {
         applicationId = "com.cwj.surgpanel"
-        minSdk = 35
+        minSdk = 26
         targetSdk = 35
         versionCode = 4
         versionName = "1.3.0"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         ndk { abiFilters.add("arm64-v8a") }
+    }
+
+    signingConfigs {
+        if (hasReleaseSigning) {
+            create("release") {
+                storeFile = file(releaseStorePath!!)
+                storePassword = localProps.getProperty("RELEASE_STORE_PASSWORD")
+                keyAlias = localProps.getProperty("RELEASE_KEY_ALIAS")
+                keyPassword = localProps.getProperty("RELEASE_KEY_PASSWORD")
+                // v1(jar) + v2(APK Signature Scheme v2) + v3(密钥轮换) 全开
+                enableV1Signing = true
+                enableV2Signing = true
+                enableV3Signing = true
+            }
+        }
     }
 
     buildTypes {
@@ -26,6 +51,9 @@ android {
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"
             )
+            if (hasReleaseSigning) {
+                signingConfig = signingConfigs.getByName("release")
+            }
         }
     }
     compileOptions {

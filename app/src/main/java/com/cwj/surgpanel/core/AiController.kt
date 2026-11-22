@@ -9,7 +9,7 @@ import com.cwj.surgpanel.data.AiGateway
  * - [triggerDemo]：演示模式的前方测试按钮，一键注入术中意外并跑完整链路（定位 → 放大 → 剖切 → 建议）；
  * - [onAlarmTriggered]：产品模式下由监护数据越限自动触发，无需人工干预。
  *
- * 链路在后台线程推进，阶段变化写入 [SurgicalSession]，聚焦窗与其余面板在同一帧内响应。
+ * 链路在后台线程推进，阶段变化回投主线程写入 [SurgicalSession]，聚焦窗与其余面板在同一帧内响应。
  */
 object AiController {
 
@@ -18,6 +18,24 @@ object AiController {
 
     /** 阶段动画步进。 */
     private const val STAGE_TICK_MS = 20L
+
+    /** 主线程投递口：链路在后台线程推进，Compose 状态一律回投主线程写。 */
+    private val mainHandler by lazy { android.os.Handler(android.os.Looper.getMainLooper()) }
+
+    /**
+     * 在主线程执行 [block]。
+     *
+     * 链路跑在 `surgpanel-ai` 后台线程上，而 [SurgicalSession] 的字段是 Compose 快照状态。
+     * 快照状态只在主线程写才不会与重组竞争（否则可能刚写入就被同帧快照覆盖，或触发 snapshot apply 冲突）。
+     * 已经在主线程时直接执行，避免多余的一次投递延迟。
+     */
+    private inline fun ui(crossinline block: () -> Unit) {
+        if (android.os.Looper.myLooper() == android.os.Looper.getMainLooper()) {
+            block()
+        } else {
+            mainHandler.post { block() }
+        }
+    }
 
     @Volatile
     private var generation = 0
@@ -133,8 +151,8 @@ object AiController {
 
     private fun runPipeline(gen: Int, trigger: String) {
         if (gen != generation) return
-        SurgicalSession.aiRunning = true
-        SurgicalSession.incident = null
+        ui { SurgicalSession.aiRunning = true }
+        ui { SurgicalSession.incident = null }
 
         stage(gen, FocusStage.LOCALIZE, 500)
         if (gen != generation) return
@@ -156,9 +174,9 @@ object AiController {
         val response = AiGateway.analyze(request)
         if (gen != generation) return
 
-        SurgicalSession.aiEngine = response.engine
-        SurgicalSession.aiLatencyMs = response.latencyMs.toInt()
-        SurgicalSession.incident = response.incident
+        ui { SurgicalSession.aiEngine = response.engine }
+        ui { SurgicalSession.aiLatencyMs = response.latencyMs.toInt() }
+        ui { SurgicalSession.incident = response.incident }
         SurgicalSession.log("智能定位：${response.incident.region}")
         AiNarrator.stream(
             NarrationTone.DETECT,
@@ -171,7 +189,7 @@ object AiController {
 
         stage(gen, FocusStage.SECTION, 1000)
         if (gen != generation) return
-        SurgicalSession.sliceIndex = response.incident.targetSlice.coerceIn(0, 95)
+        ui { SurgicalSession.sliceIndex = response.incident.targetSlice.coerceIn(0, 95) }
         SurgicalSession.log("自动剖切：断面切至第 ${response.incident.targetSlice + 1} 层，内部结构展开")
         AiNarrator.stream(
             NarrationTone.ANALYZE,
@@ -180,7 +198,7 @@ object AiController {
 
         stage(gen, FocusStage.ADVISE, 700)
         if (gen != generation) return
-        SurgicalSession.aiRunning = false
+        ui { SurgicalSession.aiRunning = false }
         SurgicalSession.log(
             "处置建议已生成 ${response.incident.actions.size} 项，置信度 ${response.incident.confidence}%",
             critical = true
@@ -196,18 +214,48 @@ object AiController {
         }
     }
 
+    /**
+     * 阶段进度动画。
+     *
+     * 原先由管线线程每 20 ms 直接向主线程 post 一次动画进度：一条完整链路的四个阶段累计要投递
+     * 近百条消息，把 AI 分析结果等业务消息压在消息队列里排队，动画推进又与渲染帧不同步；取消时
+     * 已入队的过期进度还会继续改写界面。
+     *
+     * 现在改为「管线线程只等，进度在主线程按拍推进」：每个阶段只在进入时投递一次，进度由主线程
+     * Handler 自增，与渲染节奏一致；[generation] 变化（取消 / 重来）时主线程侧立即停拍并放行
+     * 管线线程，不会再有残留消息改写新阶段的进度。
+     */
     private fun stage(gen: Int, stage: FocusStage, durationMs: Long) {
         if (gen != generation) return
-        SurgicalSession.focusStage = stage
         val steps = (durationMs / STAGE_TICK_MS).toInt().coerceAtLeast(1)
-        for (i in 0..steps) {
-            if (gen != generation) return
-            SurgicalSession.focusAnim = i.toFloat() / steps
-            try {
-                Thread.sleep(STAGE_TICK_MS)
-            } catch (_: InterruptedException) {
-                return
+        val finished = java.util.concurrent.CountDownLatch(1)
+        mainHandler.post {
+            if (gen != generation) {
+                finished.countDown()
+                return@post
             }
+            SurgicalSession.focusStage = stage
+            SurgicalSession.focusAnim = 0f
+            var step = 0
+            val ticker = object : Runnable {
+                override fun run() {
+                    if (gen != generation) {
+                        finished.countDown()
+                        return
+                    }
+                    step++
+                    SurgicalSession.focusAnim = step.toFloat() / steps
+                    if (step >= steps) finished.countDown()
+                    else mainHandler.postDelayed(this, STAGE_TICK_MS)
+                }
+            }
+            mainHandler.postDelayed(ticker, STAGE_TICK_MS)
+        }
+        // 等待本阶段走完。上限为标称时长 + 2 s：主线程若被阻塞也不会让管线永久挂起。
+        try {
+            finished.await(durationMs + 2_000L, java.util.concurrent.TimeUnit.MILLISECONDS)
+        } catch (_: InterruptedException) {
+            Thread.currentThread().interrupt()
         }
     }
 }

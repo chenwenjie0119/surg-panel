@@ -14,9 +14,11 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.cwj.surgpanel.R
 import com.cwj.surgpanel.core.CaseRecordBook
 import com.cwj.surgpanel.core.NarrationTone
 import com.cwj.surgpanel.core.RecordNarrator
@@ -29,6 +31,7 @@ import com.cwj.surgpanel.ui.common.SectionLabel
 import com.cwj.surgpanel.ui.common.StatusDot
 import com.cwj.surgpanel.ui.theme.Palette
 import com.pico.spatial.ui.design.Text
+import androidx.compose.ui.platform.LocalContext
 
 /**
  * 无接触病历调阅面板。
@@ -42,6 +45,13 @@ import com.pico.spatial.ui.design.Text
  */
 @Composable
 fun RecordPanel() {
+    // 回调/绘制 lambda 不是 @Composable 上下文，改用 Context 资源取带参文案
+    val res = LocalContext.current.resources
+
+    // 点击/语音回调不是 @Composable 上下文，文案在此取出后传入
+    val text_record_02 = stringResource(R.string.record_02)
+    // 点击/语音回调不是 @Composable 上下文，文案在此取出后传入
+    val text_record_03 = stringResource(R.string.record_03)
     val entry = CaseRecordBook.current()
     val seq = SurgicalSession.recordSeq
 
@@ -58,7 +68,7 @@ fun RecordPanel() {
     }
 
     PanelFrame(
-        title = "无接触病历调阅 · ${entry.title}",
+        title = stringResource(R.string.record_07, entry.title),
         tag = SurgicalSession.CASE_NO,
         accent = Palette.Cyan,
         gazeHot = SurgicalSession.recordOpen,
@@ -71,12 +81,12 @@ fun RecordPanel() {
                 label = if (RecordNarrator.typing) "STREAMING" else "READY"
             )
             Spacer(Modifier.width(10.dp))
-            ChipButton("语音关闭", false, Palette.Red) {
-                VoiceCommandRouter.handle("关闭", "病历面板")
+            ChipButton(stringResource(R.string.record_01), false, Palette.Red) {
+                VoiceCommandRouter.handle(text_record_02, text_record_03)
             }
         }
     ) {
-        SectionLabel("调阅条目 · 注视即切换", Palette.Cyan)
+        SectionLabel(stringResource(R.string.record_04), Palette.Cyan)
         Spacer(Modifier.height(8.dp))
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             CaseRecordBook.all().forEach { e ->
@@ -84,14 +94,14 @@ fun RecordPanel() {
                     if (SurgicalSession.recordEntryId != e.id) {
                         SurgicalSession.recordEntryId = e.id
                         SurgicalSession.recordSeq++
-                        SurgicalSession.log("调阅切换：${e.title}")
+                        SurgicalSession.log(res.getString(R.string.record_08, e.title))
                     }
                 }
             }
         }
 
         Spacer(Modifier.height(12.dp))
-        SectionLabel("${entry.tag} · 关键结论", Palette.Mint)
+        SectionLabel(stringResource(R.string.record_09, entry.tag), Palette.Mint)
         Spacer(Modifier.height(6.dp))
         NarrationBlock(
             accent = Palette.Cyan,
@@ -125,10 +135,10 @@ fun RecordPanel() {
                 .padding(horizontal = 12.dp, vertical = 9.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            StatusDot(active = true, color = Palette.Mint, label = "无菌")
+            StatusDot(active = true, color = Palette.Mint, label = stringResource(R.string.record_05))
             Spacer(Modifier.width(10.dp))
             Text(
-                text = "注视即读 · 说「关闭」即退 · 全程无需触碰任何物品",
+                text = stringResource(R.string.record_06),
                 color = Palette.TextBody,
                 fontSize = 11.sp
             )

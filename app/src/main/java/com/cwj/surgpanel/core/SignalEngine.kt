@@ -38,10 +38,6 @@ object SignalEngine {
         return (0.35f * up * decay + 0.18f * decay + dicrotic).coerceIn(0f, 1f)
     }
 
-    /** 呼吸波形（12 次/分）。 */
-    fun respPhase(phase: Float): Float =
-        (sin(2f * PI.toFloat() * phase / 5f) * 0.5f + 0.5f)
-
     /** 血氧脉搏波。 */
     fun plethPhase(phase: Float, heartRate: Int): Float {
         val p = phase * (heartRate / 60f) % 1f
@@ -92,18 +88,5 @@ object SignalEngine {
         val dx = (x - mx) / sx
         val dy = (y - my) / sy
         return exp(-(dx * dx + dy * dy) * 0.5f)
-    }
-
-    /** 内窥镜视野组织纹理。 */
-    fun scopeTissue(x: Float, y: Float, t: Float, zoom: Float): Float {
-        val dx = (x - 0.5f) / zoom
-        val dy = (y - 0.5f) / zoom
-        val r = dx * dx + dy * dy
-        if (r > 0.25f) return 0f
-        val folds = sin(dx * 26f + t * 0.6f) * 0.5f + 0.5f
-        val vessels = sin(dy * 18f - t * 0.35f + folds) * 0.5f + 0.5f
-        val base = 0.55f + 0.18f * folds + 0.14f * vessels
-        val vignette = (1f - r * 3.4f).coerceIn(0f, 1f)
-        return (base * vignette).coerceIn(0f, 1f)
     }
 }

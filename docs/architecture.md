@@ -9,11 +9,13 @@ This document describes how SurgPanel is built and how each on-screen element is
 | Language | Kotlin (no JNI, no C++) |
 | UI | Jetpack Compose, wrapped by the PICO Spatial SDK window DSL |
 | App id | `com.cwj.surgpanel` |
-| compileSdk / targetSdk / minSdk | 35 / 35 / 35 |
+| compileSdk / targetSdk / minSdk | 35 / 35 / 26 |
 | ABI | `arm64-v8a` |
 | Renderer | `box.usdz` scene asset, planar window containers |
 
 The whole app is one `SpatialApplication` process. Spatial windows are not separate processes, so every panel shares one in-memory state graph instead of exchanging IPC messages.
+
+`minSdk` is 26 rather than 35 on purpose. PICO Spatial SDK 6.2.8 requires Android 8.0 (API 26) at runtime, so pinning `minSdk` to 35 would have made the APK installable only on API 35 hardware for no technical reason. `targetSdk` stays at 35 because the SDK's window DSL and the Compose toolchain are validated against that level. The merged manifest of the verified build reports `minSdkVersion="26"` and `targetSdkVersion="35"`.
 
 ## 2. Window layout
 
@@ -37,7 +39,9 @@ Enum types carry the domain vocabulary: `LinkMode` (full / focus / off), `Modali
 
 ## 4. Surgical clock
 
-`platform/SessionClock.kt` runs one daemon thread with a fixed 100 ms tick. Every tenth tick advances `elapsedSec`; every tick recomputes vitals and evaluates the alarm.
+`platform/SessionClock.kt` runs one daemon thread driven by a monotonic schedule. Every tick is scheduled against an absolute grid on `System.nanoTime()`: tick *n* is due at `anchor + n × STEP_MS` (`STEP_MS` = 100 ms), so the work done inside a tick is subtracted from the next wait instead of being added to the period and lateness cannot accumulate. Each tick sleeps to one millisecond before its grid point and then yields until the deadline — `Thread.sleep` alone is only accurate to a few milliseconds, and a per-tick late wake-up is exactly what makes waveforms and digits drift apart. If the thread is descheduled for longer than `SLACK_NS` (five ticks = 500 ms) the anchor is re-based on the current reading, which trades one skipped beat for a bounded re-alignment rather than a burst of catch-up ticks.
+
+The surgical time is a tick index, not wall time: the timeline is `tickIndex × STEP_MS`, and the sub-second phase the panels see is derived as `(tickIndex × STEP_MS % 1000) / STEP_MS`, so the phase is a consequence of how many beats have actually been committed rather than of how often the thread happened to wake up. While the session is paused the tick index is frozen and the thread yields a whole step per iteration — a bare `continue` would compute a zero wait and spin a core at full speed for the whole pause — so the timeline stalls and resuming continues from the frozen beat instead of replaying a backlog or jumping the phase. A write to `elapsedSec` from outside (timeline reset) is detected by comparing against the last committed second and re-seeds both the tick index and the anchor. State writes are posted to the main thread (`mainHandler.post { update(phase) }`), which keeps snapshot writes off the clock thread.
 
 * **Vitals source.** In product mode the clock first asks `InstrumentRegistry.vitals` for a frame; in demo mode, or when no instrument is attached, it falls back to the local model.
 * **Event cycle.** The local model replays a 140 s cycle: bleeding from 40 s to 68 s, then a 20 s linear recovery, then a stable baseline with slow drift. The cycle repeats so the demo can be run back to back.
@@ -91,7 +95,7 @@ Two parameters are consumed by the renderer rather than only stored:
 | `SECTION` | 1000 ms | imaging slice jumps to `incident.targetSlice` |
 | `ADVISE` | 700 ms | ordered action list and confidence published |
 
-`focusAnim` steps from 0 to 1 every 20 ms so the focus window can interpolate its own presentation. A monotonically increasing `generation` counter is checked before every stage, so a cancelled or restarted run can never write stale results.
+The stage animation is owned by the main thread, not by the pipeline. Each stage posts exactly one message; a `Handler`-driven ticker then advances `focusAnim` from 0 to 1 in `STAGE_TICK_MS` (20 ms) steps, so progress is paced by the same thread that renders it. The pipeline thread only waits on a `CountDownLatch` for the stage to finish, bounded by `durationMs + 2 s` so that a blocked main thread cannot hang the pipeline forever. The previous shape posted one message per 20 ms from the worker — close to a hundred messages per chain, queued ahead of the AI results — and a cancelled run could still have its queued ticks overwrite the next run's progress. Every Compose-backed field (`aiRunning`, `incident`, `aiEngine`, `aiLatencyMs`, `sliceIndex`, `focusStage`, `focusAnim`) is written on the main thread, and a monotonically increasing `generation` counter is checked before every stage and on every tick: when it moves, the ticker stops itself and releases the pipeline, so a cancelled or restarted run can never write stale results.
 
 There are two entry points:
 
@@ -99,6 +103,8 @@ There are two entry points:
 * `onAlarmTriggered(level)` — product mode only. A critical threshold crossing starts the same pipeline without operator input.
 
 `onResolved(fromData)` clears the chain. When it is called from the data path in demo mode it returns early, because the vitals recovering on their own must not pull the conclusion away from the surgeon mid-read.
+
+`ai/AiNarrator.kt` is the only other thread-touching piece of the advisory path. It keeps at most one `drain()` coroutine, guarded by a lock it shares with `reset()`: deciding whether the worker is still alive and starting `drain(token)` both happen inside the same `synchronized(workerLock)` block, and `reset()` cancels and clears the handle under that same lock. Without the lock a line could be appended in the window where the worker had already drained the queue but had not yet completed, so the line sat in the buffer with nobody consuming it and a suggestion would occasionally never appear; the unlock/cancel race could also let two `drain()` coroutines consume the same queue. The coroutine detaches its own handle through `invokeOnCompletion`, and only when the handle is still its own (`worker === job`), so a finishing worker cannot clear a newer one. Emission itself stays on the main thread.
 
 ## 9. Inference gateway
 
@@ -161,8 +167,32 @@ The same file exposes `CoordStack`, which prints one live line per window in the
 3. `AiController`, `SurgicalSession` and `SignalEngine` do not reference `PerfGovernor` either; degradation cannot reach the data path.
 4. The latest numeric text and the red alarm frame are plain state reads, so they repaint on every change regardless of level. Only the canvas waveform resamples.
 5. Values that are drawn as curves pass through `rememberSmoothFloat`, which interpolates towards the target with a frame-rate independent step, so a drop from 60 Hz to 20 Hz stays smooth instead of stepping.
-6. Nothing suspends threads. There is no background scheduler, no wake lock juggling and no thread pool inside the governor; the alarm thread is never paused, throttled or parked.
+6. All visual animation is driven by exactly one frame loop. `rememberVisualClock` no longer starts a `LaunchedEffect` per panel; it attaches to the private `VisualClockDriver` singleton, which keeps a single `withFrameNanos` loop, a single reference count and therefore a single `PerfGovernor.reportFrame` call per frame. Per-frame consumers that are not the clock itself — the radar trail sampler and `rememberSmoothFloat` — subscribe through `rememberFrameCallback`, which registers a listener on the same driver and unregisters it in `onDispose`; the listener table is only touched from the main thread and the callback always invokes the newest lambda through `rememberUpdatedState`. With the previous per-panel loops the same frame was reported up to five times (nine with the alert overlay), which biased the slow-frame average and could push the governor into a lower level on its own extra traffic; the separate trail and interpolation loops added further samples of the very same frame. `DisposableEffect` attaches on entry and detaches on dispose, so the loop stops when the last consumer leaves the composition.
+7. Nothing suspends threads. There is no background scheduler, no wake lock juggling and no thread pool inside the governor; the alarm thread is never paused, throttled or parked.
 
-## 16. Build and verification
+## 16. Text resources
+
+Every string the operator sees is resolved from `res/values/strings.xml`; no Compose file in `ui/` contains a hard-coded Chinese literal. The resource file holds 154 entries grouped by panel with a stable prefix per screen:
+
+| Prefix | Screen |
+| --- | --- |
+| `console_*` | surgical console page and its event stream |
+| `focus_*` | focus / zoom window |
+| `imaging_*` | CT and MRI slice panel |
+| `vitals_*` | vitals panel |
+| `scope_*` | endoscope panel, including the Canvas annotations |
+| `record_*` | case record panel |
+| `narration_*` | AI narration block |
+| `panel_*` | shared panel frame chrome |
+
+Static labels use `stringResource(R.string.x)` in composables. Text that is produced inside a lambda, a `Canvas` draw pass or a click handler cannot call a composable function, so those sites either hoist the value into a local at the top of the composable or read `LocalContext.current.resources.getString(R.string.x, arg)` directly. Formatted entries use positional placeholders (`%1$s`, `%1$.2f`) so argument order is explicit and no `String.format` with an inline pattern remains in the UI layer.
+
+The default locale is Chinese; the resource directory is `values/` without a qualifier, so a device set to any other locale still renders the Chinese strings rather than blanks. Domain vocabulary inside `core/` and `data/` (alarm messages, advisor rationales, log lines, demo scenario data) is intentionally kept as code literals: it is generated data and diagnostic output, not UI copy, and translating it per-locale would not change what is shown.
+
+## 17. Build and verification
 
 `./gradlew :app:compileDebugKotlin --rerun-tasks` compiles the module from scratch; the current tree builds with zero warnings and zero errors. `:app:assembleDebug` produces `app-debug.apk` (arm64-v8a) for the emulator and the device.
+
+The recorded verification run used JDK 21.0.2, Android SDK platform 35 with build-tools 35.0.1 and the checked-in Gradle 8.13 wrapper on a Windows 11 host. A full `clean :app:assembleDebug` finished `BUILD SUCCESSFUL` in 1 m 17 s with all 37 tasks executed, and the incremental rebuild after the resource cleanup finished in 51 s. The emitted `app-debug.apk` is 14.1 MB and its manifest reports `minSdkVersion="26"`, `targetSdkVersion="35"` and the label `空间手术面板`. Every change described in this document was followed by a real build before it was accepted; the two changes that failed to compile (a `stringResource` call from a non-composable lambda, and a duplicate `console_59` key) were fixed or reverted rather than left described as done. When the Kotlin compile daemon cannot create its probe file under a non-ASCII user path, Gradle falls back to in-process compilation and the build still succeeds; that warning is environmental, not a code defect.
+
+The determinism changes described above (§4 clock grid, §8 main-thread stage ticker and `AiNarrator` lock, §15 single frame loop) were each followed by both variants of the build on a Windows 11 host with JDK 21.0.2: `:app:assembleDebug --rerun-tasks` finished `BUILD SUCCESSFUL in 1 m 2 s` with all 36 tasks executed and zero compiler warnings, producing `app-debug.apk` at 14,824,053 bytes (14.13 MB); `:app:assembleRelease --rerun-tasks` finished `BUILD SUCCESSFUL in 1 m 30 s` with all 50 tasks executed, producing the signed `app-release.apk` at 11,187,249 bytes (10.67 MB), verified by `apksigner verify --print-certs` (certificate SHA-256 `4827573d17eb9dc13f3dd51b4f0dce7ab4a548046ae9cb800bd90373cea1d0ca`). Both APKs keep `versionCode=4`, `versionName=1.3.0`, `minSdk=26`, `targetSdk=35`.

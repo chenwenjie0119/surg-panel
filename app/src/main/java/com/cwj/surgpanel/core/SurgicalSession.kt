@@ -88,15 +88,6 @@ object SurgicalSession {
     /** 最近一次语义来源，用于在聚焦窗展示“自动触发 / 语音指令 / 捏合确认”。 */
     var triggerSource by mutableStateOf("")
 
-    fun clearIncident() {
-        incident = null
-        focusStage = FocusStage.IDLE
-        focusAnim = 0f
-        aiRunning = false
-        adviceConfirmed = false
-        triggerSource = ""
-    }
-
     // ---- 联动与布局 ----
     var linkMode by mutableStateOf(LinkMode.FULL)
     var layoutPreset by mutableStateOf(LayoutPreset.STANDARD)
@@ -214,10 +205,4 @@ object SurgicalSession {
     fun eblLabel(): String = "$eblMl mL"
 
     fun sliceLabel(): String = "${modality.label} · 第 ${sliceIndex + 1} / 96 层"
-
-    /** 窗口排布随布局预设调整。 */
-    fun applyPreset(preset: LayoutPreset) {
-        layoutPreset = preset
-        log("布局切换：${preset.label}")
-    }
 }

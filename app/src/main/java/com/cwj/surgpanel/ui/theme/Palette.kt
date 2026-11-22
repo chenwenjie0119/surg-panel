@@ -20,14 +20,4 @@ object Palette {
     val Red = Color(0xFFFF5468)
     val Violet = Color(0xFF9B8CFF)
     val Tissue = Color(0xFFC0705C)
-
-    /** 影像灰阶配色（CT 用中性灰，MRI 用微冷灰）。 */
-    fun gray(level: Float, mri: Boolean): Color {
-        val v = level.coerceIn(0f, 1f)
-        return if (mri) {
-            Color(red = v * 0.86f, green = v * 0.90f, blue = v, alpha = 1f)
-        } else {
-            Color(red = v, green = v, blue = v * 0.98f, alpha = 1f)
-        }
-    }
 }

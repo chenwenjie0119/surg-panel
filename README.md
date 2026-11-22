@@ -6,14 +6,14 @@ Each stream lives in its own `WindowContainer` and can be freely placed, resized
 
 > Stack: **pure Kotlin + PICO Spatial SDK 6.2.8 (Compose for Spatial), no 3D engine dependency**
 > Headset-free development: PICO Emulator (managed by pico-cli, x86_64 image)
-> Release: **v1.3.0** (versionCode 4) - Spatial SDK 6.2.8 toolchain upgrade (zero source change), pico-cli 0.7.0
+> Release: **v1.3.0** (versionCode 4) - Spatial SDK 6.2.8 toolchain upgrade (6 files changed, +182/-11; NOTICE-level debounce), pico-cli 0.7.0
 
 **Language:** English | [简体中文](README.zh-CN.md)
 
-![Four anchored window containers](shots/03-spatial.jpg)
+![Anchored window layout, five panels visible](shots/03-spatial.jpg)
 
-Architecture and Code Review details are available in docs/code_review.md
-Toolchain upgrade record (6.1.9 -> 6.2.8): [docs/upgrade-6.2.8.md](docs/upgrade-6.2.8.md)
+Architecture and Code Review details are available in [code_review.md](docs/code_review.md) and [architecture.md](docs/architecture.md)
+Toolchain upgrade record (6.1.9 -> 6.2.8): [upgrade-6.2.8.md](docs/upgrade-6.2.8.md)
 
 ---
 
@@ -51,7 +51,7 @@ pico-cli capture screenshot --out shots/live.png
 | `imaging-panel` | CT/MRI axial slice, measurement, window width/level, slice stepping | Planar | 860x700 | To the **right** of the console |
 | `vitals-panel` | Heart rate, blood pressure, SpO2, EtCO2, three-lead waveforms | Planar | 780x440 | **Above** the console |
 | `scope-panel` | Circular endoscopic field with instrument, fold and bleeding rendering | Planar | 720x640 | To the **left** of the console |
-| `focus-panel` | Incident focus: virtual magnification, cut-away cross-section, findings, countermeasures | Planar | 760x780 | Left of the console, raised to the front when an anomaly fires |
+| `focus-panel` | Incident focus: virtual magnification, cut-away cross-section, findings, countermeasures | Planar | 940x760 | Left of the console, raised to the front when an anomaly fires |
 | `record-panel` | Touch-free record review: history entries, imaging and allergy summary, streamed as text | Planar | 560x400 | Closed by default; right of the imaging window once summoned |
 
 - Placement uses the official `Placement.placement(anchor, Orientation.Right/Top/Left, offset)`. Anchors are resolved by container ID from `PlacementContext.containers`, with a `Placement.none()` fallback so a missing anchor never crashes startup.
@@ -64,7 +64,7 @@ pico-cli capture screenshot --out shots/live.png
 
 ```
 com.cwj.surgpanel
-├── Main.kt                    Spatial entry: DefaultWindowContainer plus three WindowContainer declarations and anchoring
+├── Main.kt                    Spatial entry: DefaultWindowContainer plus five WindowContainer declarations and anchoring
 ├── core/
 │   ├── SurgicalSession.kt     Global session state (Compose State, single source): vitals, slice, modality, operating mode, incident, event log
 │   ├── SignalEngine.kt        Pure signal generation: ECG/ABP/pulse waveforms, tissue density field, surgical field texture
@@ -98,7 +98,7 @@ com.cwj.surgpanel
 
 **Gaze, pinch and voice.** `GazePinchController` casts the eye forward vector against the five window planes, keeps the nearest hit and lights a panel once the same hit holds for a third of its 750 ms dwell window. A hand pinch above 0.82 on a lit panel fires the confirm handler registered for that panel and then stays locked for 700 ms. When the eye provider is unavailable the HMD ray takes over, so the highlight still works on hardware without an eye tracker. The console microphone button feeds the system `SpeechRecognizer`; the phrase *立刻查看出血点* (and a small set of paraphrases) sets the alarm to critical, marks the bleeding flag and brings the focus window forward through the same state the instrument path uses.
 
-**Performance contract.** `PerfGovernor` may only throttle what is drawn: `visualHz` 60 / 30 / 20 and `waveStride` 2 / 3.4 / 5.They affect the canvas waveform alone. `SessionClock` keeps its 100 ms daemon tick and the alarm grading untouched in every level, numeric readouts and the red alarm frame repaint on every state change, curves are interpolated with a frame-rate independent step so a lower rate never looks like a jump, and no thread is ever suspended to save power. `docs/architecture.md` section 15 states the contract in full.
+**Performance contract.** `PerfGovernor` may only throttle what is drawn: `visualHz` 60 / 30 / 20 and `waveStride` 2 / 3.4 / 5.They affect the canvas waveform alone. `SessionClock` keeps its 100 ms daemon tick and the alarm grading untouched at every performance level, numeric readouts and the red alarm frame repaint on every state change, curves are interpolated with a frame-rate independent step so a lower rate never looks like a jump, and no thread is ever suspended to save power. `docs/architecture.md` section 15 states the contract in full.
 
 **State and view are decoupled.** Every panel only reads `SurgicalSession`; every write is centralized in `SessionClock` (a background daemon thread). Closing, reopening or moving a window therefore never interrupts the data flow, and swapping in real device sources later means replacing `SessionClock` with a DICOM / patient monitor / endoscope SDK adapter without touching any panel.
 
@@ -106,7 +106,7 @@ com.cwj.surgpanel
 
 ## 4. Operating modes
 
-The console toggles between two modes. Both drive the same four panels and the same session state, so the spatial layout does not change when a real device is plugged in.
+The console toggles between two modes. Both drive the same panels and the same session state, so the spatial layout does not change when a real device is plugged in.
 
 | | Demo mode | Product mode |
 | --- | --- | --- |
@@ -143,14 +143,14 @@ No panel talks to the network or to a device directly: everything is written int
 
 | Linkage | Trigger | Behaviour |
 | --- | --- | --- |
-| Vitals -> imaging | Entering `CRITICAL` inside a bleeding window (one cycle every 140 s: bleeding from 40 s to 68 s, then a 20 s linear recovery) | Imaging window auto-jumps to the bleeding-related slice (#46), the ROI pulses, and the console logs the alarm |
+| Vitals -> imaging | Entering `CRITICAL` inside a bleeding window (one cycle every 140 s: bleeding from 40 s to 68 s, then a 20 s linear recovery) | Imaging window auto-jumps to the bleeding-related slice (#47, zero-based index 46), the ROI pulses, and the console logs the alarm |
 | Imaging -> vitals | Switching modality (CT/MRI) or slice | Waveform and value areas annotate the current scan context |
 | Endoscope -> imaging | Magnification change while linkage is on | Imaging ROI scales with the magnification, so "where I look is where I zoom" holds across panels |
 | Alarm -> all panels | Vitals crossing a threshold | Status lamps turn red in all three panels; the console event log records the transition |
 
 Linkage strength has three levels on the console: `FULL` (everything linked), `PARTIAL` (visual sync only), `OFF` (independent windows, handy for A/B demos).
 
-**Alarm grading uses hysteresis.** Entering `CRITICAL` requires the high thresholds (HR > 112 / SBP < 90 / SpO2 < 94), leaving requires the low thresholds (HR <= 106 and SBP >= 96 and SpO2 >= 95); `WATCH` behaves the same way (enter at HR > 96, exit at HR <= 90). Edge flicker is gone, so a full event produces exactly three state transitions in the log:
+**Alarm grading uses hysteresis.** Entering `CRITICAL` requires HR > 120, SBP < 90 and exudate score >= 0.62 to hold together for 15 consecutive ticks (1.5 s), or SpO2 < 92 on its own; leaving requires HR <= 112 and SBP >= 95 and exudate < 0.45 and SpO2 >= 94. `WATCH` enters at two hits or HR > 96 or SBP < 100 or SpO2 < 96, and leaves at one hit or fewer with HR <= 90, SBP >= 104 and SpO2 >= 97; `NOTICE` leaves only after 1.5 s without a hit. Edge flicker is gone, so a full event produces exactly three state transitions in the log:
 
 ```
 alarm=NONE      t=0s    hr=82  sbp=118 spo2=98  bleed=false
@@ -182,7 +182,7 @@ An OR where every monitor beeps teaches the surgeon to hear nothing.
 
 - Every 100 ms tick `SessionClock` evaluates three independent signals: **HR > 120**, **SBP < 90** and an **endoscopic exudate score >= 0.62** (the score comes from the tissue model in `SignalEngine.exudateScore`). Only the three held together for 1.5 s escalate to `CRITICAL` - red flashing frame plus the rapid 165 ms alarm tone. The three legs are printed in the event log as `fusion=3[true,true,true]` so a reviewer can verify the gate.
 - A single leg drifting high raises **no alarm at all**: the console corner lights a small cyan dot and the vitals flow row reports `交叉验证 1/3` with the offending leg, so a heart rate of 121 on its own never interrupts the operator.
-- Hysteresis sits on top of the gate (enter at HR>112 / SBP<90 / SpO2<94, leave at HR<=106 and SBP>=96 and SpO2>=95), so an event produces three log lines and no edge flicker.
+- Hysteresis and debounce sit on top of the gate (leaving `CRITICAL` needs HR<=112 and SBP>=95 and exudate<0.45 and SpO2>=94; `NOTICE` leaves only after 1.5 s without a hit), so an event produces only a few level changes and no edge flicker.
 
 > Multi-parameter cross-verified alarming effectively reduces operating-room alarm fatigue, so the operator's attention is interrupted only by genuinely critical events such as acute haemorrhage.
 
@@ -213,8 +213,8 @@ The operator sees the lesion but cannot point at it for the assistant.
 | --- | --- | --- |
 | Innovation | 25 | Spatial orchestration of multiple intraoperative sources rather than a single ported window: alarm-driven auto focus, ROI semantics tied to magnification, switchable linkage strength |
 | Functionality | 25 | All four streams run live on a 100 ms tick, including bleeding events, phase progression and alarm grading, instead of static mock-ups |
-| Visual design | 15 | Consistent dark medical palette and information hierarchy (value -> waveform -> status bar), shared panel chrome, one visual language across four windows |
-| Interaction | 15 | Multi-window is the baseline here: four independent containers, native drag / resize / dynamic scaling, window open-close with reuse tags, anchored initial layout |
+| Visual design | 15 | Consistent dark medical palette and information hierarchy (value -> waveform -> status bar), shared panel chrome, one visual language across all six window containers |
+| Interaction | 15 | Multi-window is the baseline here: six window containers (one default plus five WindowContainer; five visible by default), native drag / resize / dynamic scaling, window open-close with reuse tags, anchored initial layout |
 | Completeness | 10 | Compiles, installs and runs; verified on the emulator; layered structure with no TODO stubs |
 | Presentation | 10 | One-command launch, clear demo path: switch modality -> drag a window -> wait for the bleeding event to drive the linkage |
 
@@ -237,7 +237,7 @@ All shots are captured from the PICO Emulator with `adb exec-out screencap`.
 | View | Description |
 | --- | --- |
 | ![Anchored layout](shots/03-spatial.jpg) | **Anchored layout.** Console in the centre; imaging right, vitals above, endoscope left. |
-| ![Critical alarm](shots/07-critical.jpg) | **Bleeding alarm.** Red alarm bar, all status lamps red, imaging auto-jumped to slice #46. |
+| ![Critical alarm](shots/07-critical.jpg) | **Bleeding alarm.** Red alarm bar, all status lamps red, imaging auto-jumped to slice #47. |
 | ![Stable phase](shots/08-stable.jpg) | **Recovered.** After the 20 s recovery the lamps return to green and the event log settles. |
 | ![Live data](shots/04-live.jpg) | **Live data flow.** Waveforms and values updating on the 100 ms tick. |
 
@@ -245,4 +245,4 @@ All shots are captured from the PICO Emulator with `adb exec-out screencap`.
 
 *Built for the PICO Space Program 2026. Pure Kotlin, PICO Spatial SDK, no Unity, no third-party 3D engine.*
 
-See [docs/architecture.md](docs/architecture.md) for detailed implementation states.
+See [architecture.md](docs/architecture.md) for detailed implementation states.

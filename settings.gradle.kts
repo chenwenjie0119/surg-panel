@@ -1,4 +1,4 @@
-﻿pluginManagement {
+pluginManagement {
     repositories {
         maven { url = uri("https://maven.aliyun.com/repository/google") }
         maven { url = uri("https://maven.aliyun.com/repository/public") }
@@ -13,8 +13,8 @@
         mavenCentral()
         gradlePluginPortal()
         maven {
+            name = "picoSpatial"
             url = uri("https://artifact.bytedance.com/repository/Volcengine")
-            name = ""
         }
     }
 }
@@ -26,8 +26,8 @@ dependencyResolutionManagement {
         google()
         mavenCentral()
         maven {
+            name = "picoSpatial"
             url = uri("https://artifact.bytedance.com/repository/Volcengine")
-            name = ""
         }
     }
 }

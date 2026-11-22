@@ -7,19 +7,21 @@
 | 目标版本 | v1.3.0（versionCode 4） |
 | SDK BOM | `com.pico.spatial:bom` 6.1.9 → **6.2.8**（2026-11-11 发布） |
 | CLI | pico-cli 0.6.1 → **0.7.0**（并存安装，未覆盖旧版） |
-| 源码改动 | **零改动**（仅版本类文件） |
+| 源码改动 | **6 个文件、+182/−11**（`SessionClock.kt` 增加 NOTICE 级消抖，其余为版本类与文档） |
 | 构建结论 | `clean assembleDebug` BUILD SUCCESSFUL |
 
 ## 1. 变更清单
 
-| 文件 | 改动 |
-| --- | --- |
-| `gradle/libs.versions.toml` | `spatialBom = "6.1.9"` → `"6.2.8"` |
-| `app/build.gradle.kts` | `versionCode 3 → 4`，`versionName "1.2.1" → "1.3.0"` |
-| `README.md` | SDK 版本串、pico-cli 版本串、Release 行 |
-| `README.zh-CN.md` | 同上（中文） |
+| 文件 | 改动 | diff |
+| --- | --- | --- |
+| `gradle/libs.versions.toml` | `spatialBom = "6.1.9"` → `"6.2.8"` | 2 +- |
+| `app/build.gradle.kts` | `versionCode 3 → 4`，`versionName "1.2.1" → "1.3.0"` | 4 +- |
+| `platform/SessionClock.kt` | NOTICE 级增加消抖窗口，同级抖动不再反复刷事件 | 20 ++- |
+| `README.md` | SDK 版本串、pico-cli 版本串、Release 行 | 11 +- |
+| `README.zh-CN.md` | 同上（中文） | 12 +- |
+| `docs/upgrade-6.2.8.md` | 本记录文件新增 | 144 新增 |
 
-合计 4 个文件、9 行增删。`app/src` 下 29 个 Kotlin 文件（5570 行）未做任何修改。
+合计 **6 个文件、+182/−11**（`git diff --stat a27f4ec 6244bcc` 实测）。`app/src` 下 29 个 Kotlin 文件中只有 `SessionClock.kt` 一处改动，其余未动。
 
 ## 2. 依赖核验
 
@@ -90,12 +92,12 @@ BUILD SUCCESSFUL
 | 项 | 值 |
 | --- | --- |
 | APK | `app\build\outputs\apk\debug\app-debug.apk` |
-| 体积 | 34,894,701 bytes（33.28 MB） |
-| SHA-256 | `FC0EDE8DA504C937BE29ED33848F6EDDB2F02775C6718B086E5DB6DF97BFC08D` |
+| 体积 | 14,824,053 bytes（14.13 MB，调试包，2026-11-22 重新构建实测；正式包 11,187,249 bytes / 10.67 MB） |
+| SHA-256 | `01d9ee3c451385b48e1788387e7cf7262e01d42696c6f60bc2ba3f38dd2c824d` |
 | manifest | `versionCode='4' versionName='1.3.0'`，compileSdk 35 / targetSdk 35 |
 | 编译告警 | 无新增，未被移除 API 的 deprecation 提示 |
 
-对照测试副本 `C:\DevTools\surg628test`（仅改 BOM、未改版本号）：同为 34,894,701 bytes，SHA-256 `055894FA...D9BFDC` 不同 —— 体积一致、内容差异仅来自 manifest 版本字段，可复现性良好。
+对照测试副本 `C:\DevTools\surg628test`（仅改 BOM、未改版本号）：当时两份调试包同为 34,894,701 bytes（后续资源清理与依赖变化后，当前调试包为 14,824,053 bytes），SHA-256 `055894FA...D9BFDC` 不同 —— 体积一致、内容差异仅来自 manifest 版本字段，可复现性良好。
 
 ## 5. 工具链：pico-cli 0.6.1 → 0.7.0
 

@@ -20,9 +20,11 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.cwj.surgpanel.R
 import com.cwj.surgpanel.core.AiNarrator
 import com.cwj.surgpanel.core.NarrationLine
 import com.cwj.surgpanel.core.NarrationTone
@@ -72,7 +74,7 @@ fun NarrationBlock(
             )
             Spacer(Modifier.width(8.dp))
             Text(
-                text = if (typing) "推理输出中" else "推理通道待命",
+                text = if (typing) stringResource(R.string.narration_01) else stringResource(R.string.narration_02),
                 color = Palette.TextDim,
                 fontSize = 9.sp,
                 fontFamily = FontFamily.Monospace
@@ -81,7 +83,7 @@ fun NarrationBlock(
         Spacer(Modifier.height(5.dp))
         if (shown.isEmpty()) {
             Text(
-                text = "触发异常后，此处按字逐行输出分析结论。",
+                text = stringResource(R.string.narration_03),
                 color = Palette.TextDim.copy(alpha = 0.75f),
                 fontSize = fontSize.sp
             )

@@ -15,16 +15,17 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Rect
-import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.drawscope.clipPath
 import androidx.compose.ui.graphics.nativeCanvas
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.cwj.surgpanel.R
 import com.cwj.surgpanel.core.LinkMode
 import com.cwj.surgpanel.core.SurgicalSession
 import com.cwj.surgpanel.core.VoiceCommandRouter
@@ -38,6 +39,7 @@ import com.pico.spatial.ui.design.Text
 import kotlin.math.cos
 import kotlin.math.min
 import kotlin.math.sin
+import androidx.compose.ui.platform.LocalContext
 
 /**
  * 主刀视角面板：内窥镜 / 显微镜画面。
@@ -45,12 +47,17 @@ import kotlin.math.sin
  */
 @Composable
 fun ScopePanel() {
+    // 回调/绘制 lambda 不是 @Composable 上下文，改用 Context 资源取带参文案
+    val res = LocalContext.current.resources
+
+    // 点击/语音回调不是 @Composable 上下文，文案在此取出后传入
+    val text_scope_11 = stringResource(R.string.scope_11)
     // 只持句柄不读值：除画布外的文本行不再随帧重组
     val clock = rememberVisualClock()
     val zoom = SurgicalSession.scopeZoom
 
     PanelFrame(
-        title = "主刀视野 · 内窥镜",
+        title = stringResource(R.string.scope_01),
         tag = "SCOPE",
         accent = Palette.Violet,
         trailing = {
@@ -77,7 +84,6 @@ fun ScopePanel() {
                 val tissueOuter = if (fluorescent) Color(0xFF17B6A4) else Color(0xFFC0705C)
                 val tissueMid = if (fluorescent) Color(0xFF0A5C68) else Color(0xFF6E2A22)
                 val tissueInner = if (fluorescent) Color(0xFF03161A) else Color(0xFF1A0A08)
-                val foldColor = if (fluorescent) Color(0xFF7DF3DE) else Color(0xFFF0A78F)
                 val vesselColor = if (fluorescent) Color(0xFF00E8A6) else Color(0xFF7E1B18)
                 val shaftA = if (fluorescent) Color(0xFF11262E) else Color(0xFF2C333D)
                 val shaftB = if (fluorescent) Color(0xFF1B3742) else Color(0xFF3A424E)
@@ -212,7 +218,7 @@ fun ScopePanel() {
                     )
                 }
 
-                // ---- 主刀注视点（Gaze Focus）：四角括号绿框标出"我正在看哪里" ----
+                // ---- 主刀注视点（Gaze Focus）：四角括号绿框标出当前注视位置，教学同步时切换为薄荷色 ----
                 val focus = Offset(center.x + r * 0.32f, center.y + r * 0.22f)
                 val boxR = r * 0.11f
                 val gazeColor = if (SurgicalSession.teachingSync) {
@@ -293,17 +299,20 @@ fun ScopePanel() {
                 val topY = (center.y - r - 6f).coerceIn(12f, (size.height - 4f).coerceAtLeast(12f))
                 val botY = (center.y + r + 16f).coerceIn(12f, (size.height - 4f).coerceAtLeast(12f))
                 drawContext.canvas.nativeCanvas.apply {
-                    drawText(String.format(java.util.Locale.US, "30° 镜  ·  %.2fx", zoom), labelX, topY, paint)
-                    drawText(if (fluorescent) "近红外 800nm  ·  增益 42%" else "白光  ·  光斑 42%", labelX, botY, paint)
+                    drawText(res.getString(R.string.scope_15, zoom), labelX, topY, paint)
+                    drawText(
+                        if (fluorescent) res.getString(R.string.scope_16) else res.getString(R.string.scope_17),
+                        labelX, botY, paint
+                    )
                 }
 
-                // 注视点标注：教学同步开启时改写成"已推送教学端"
+                // 注视点标注：教学同步开启时改写为教学端在线计数，否则显示英文标签
                 paint.color = android.graphics.Color.argb(230, 109, 240, 198)
                 val gazeTx = (focus.x - boxR).coerceIn(6f, (size.width - 132f).coerceAtLeast(6f))
                 val gazeTy = (focus.y - boxR - 6f).coerceIn(12f, (size.height - 4f).coerceAtLeast(12f))
                 drawContext.canvas.nativeCanvas.drawText(
                     if (SurgicalSession.teachingSync) {
-                        "GAZE ▸ 教学端 ${SurgicalSession.teachingPeers} 端"
+                        res.getString(R.string.scope_14, SurgicalSession.teachingPeers)
                     } else {
                         "GAZE FOCUS"
                     },
@@ -331,40 +340,40 @@ fun ScopePanel() {
             horizontalArrangement = Arrangement.spacedBy(8.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            SectionLabel("视野控制", Palette.Violet)
+            SectionLabel(stringResource(R.string.scope_04), Palette.Violet)
             Spacer(Modifier.width(6.dp))
-            ChipButton("放大 −", false) {
+            ChipButton(stringResource(R.string.scope_05), false) {
                 SurgicalSession.scopeZoom = (zoom - 0.2f).coerceAtLeast(0.6f)
             }
-            ChipButton("放大 ＋", false) {
+            ChipButton(stringResource(R.string.scope_06), false) {
                 SurgicalSession.scopeZoom = (zoom + 0.2f).coerceAtMost(2.2f)
             }
-            ChipButton("白光", !SurgicalSession.autoFluorescence, Palette.Violet) {
+            ChipButton(stringResource(R.string.scope_07), !SurgicalSession.autoFluorescence, Palette.Violet) {
                 SurgicalSession.autoFluorescence = !SurgicalSession.autoFluorescence
             }
-            ChipButton("荧光", SurgicalSession.autoFluorescence, Palette.Mint) {
+            ChipButton(stringResource(R.string.scope_08), SurgicalSession.autoFluorescence, Palette.Mint) {
                 SurgicalSession.autoFluorescence = !SurgicalSession.autoFluorescence
             }
-            ChipButton("录制", SurgicalSession.recording, Palette.Red) {
+            ChipButton(stringResource(R.string.scope_09), SurgicalSession.recording, Palette.Red) {
                 SurgicalSession.recording = !SurgicalSession.recording
             }
-            ChipButton("同步教学端", SurgicalSession.teachingSync, Palette.Mint) {
+            ChipButton(stringResource(R.string.scope_10), SurgicalSession.teachingSync, Palette.Mint) {
                 if (SurgicalSession.teachingSync) {
                     SurgicalSession.teachingSync = false
-                    SurgicalSession.log("教学同步：已断开")
+                    SurgicalSession.log(res.getString(R.string.scope_19))
                 } else {
-                    VoiceCommandRouter.syncTeaching("面板")
+                    VoiceCommandRouter.syncTeaching(text_scope_11)
                 }
             }
             Spacer(Modifier.weight(1f))
             StatusDot(
                 active = SurgicalSession.scopeExudate >= 0.62f,
                 color = Palette.Red,
-                label = String.format(java.util.Locale.US, "渗出 %.2f", SurgicalSession.scopeExudate)
+                label = res.getString(R.string.scope_18, SurgicalSession.scopeExudate)
             )
             Spacer(Modifier.width(10.dp))
             Text(
-                text = if (SurgicalSession.linkMode == LinkMode.OFF) "独立视图" else "联动 · 与影像 ROI 同步",
+                text = if (SurgicalSession.linkMode == LinkMode.OFF) stringResource(R.string.scope_12) else stringResource(R.string.scope_13),
                 color = Palette.TextDim,
                 fontSize = 10.sp,
                 fontFamily = FontFamily.Monospace

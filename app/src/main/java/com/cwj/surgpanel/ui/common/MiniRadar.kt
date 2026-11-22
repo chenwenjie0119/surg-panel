@@ -5,19 +5,17 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
-import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.CornerRadius
@@ -187,29 +185,26 @@ fun MiniRadar(modifier: Modifier = Modifier, diameter: Dp = 124.dp) {
 @Composable
 private fun RadarTrail() {
     var points by remember { mutableStateOf<List<TrailPoint>>(emptyList()) }
-    LaunchedEffect(Unit) {
-        var lastSample = 0L
-        while (true) {
-            withFrameNanos { frameNs ->
-                val nowMs = frameNs / 1_000_000L
-                if (lastSample == 0L) lastSample = nowMs
-                if (nowMs - lastSample >= TRAIL_SAMPLE_MS) {
-                    lastSample = nowMs
-                    val t = nowMs / 1000f
-                    val alive = points.filter { nowMs - it.stampMs <= TRAIL_LIFE_MS.toLong() }
-                    val next = ArrayList<TrailPoint>(alive.size + 5)
-                    next.addAll(alive)
-                    WindowPoseModel.all().forEachIndexed { index, pose ->
-                        val phase = index * 1.27f
-                        val dx = sin(t * 0.9f + phase) * pose.halfW * 0.6f
-                        val dy = cos(t * 0.63f + phase * 1.4f) * pose.halfH * 0.6f
-                        next.add(TrailPoint(pose.id, pose.x + dx, pose.y + dy, nowMs))
-                    }
-                    points = next
-                        .groupBy { it.panelId }
-                        .flatMap { (_, list) -> list.takeLast(TRAIL_MAX_POINTS) }
-                }
+    var lastSample by remember { mutableLongStateOf(0L) }
+    // 复用全局唯一的帧回调，不再自建 withFrameNanos 循环，避免同一帧被多份时钟采样
+    rememberFrameCallback { frameNs ->
+        val nowMs = frameNs / 1_000_000L
+        if (lastSample == 0L) lastSample = nowMs
+        if (nowMs - lastSample >= TRAIL_SAMPLE_MS) {
+            lastSample = nowMs
+            val t = nowMs / 1000f
+            val alive = points.filter { nowMs - it.stampMs <= TRAIL_LIFE_MS.toLong() }
+            val next = ArrayList<TrailPoint>(alive.size + 5)
+            next.addAll(alive)
+            WindowPoseModel.all().forEachIndexed { index, pose ->
+                val phase = index * 1.27f
+                val dx = sin(t * 0.9f + phase) * pose.halfW * 0.6f
+                val dy = cos(t * 0.63f + phase * 1.4f) * pose.halfH * 0.6f
+                next.add(TrailPoint(pose.id, pose.x + dx, pose.y + dy, nowMs))
             }
+            points = next
+                .groupBy { it.panelId }
+                .flatMap { (_, list) -> list.takeLast(TRAIL_MAX_POINTS) }
         }
     }
 
